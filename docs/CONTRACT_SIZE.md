@@ -12,11 +12,14 @@ The ceiling is **131072** since schwung #444; it was 65536.
 
 | string | bytes | share of the ceiling |
 |---|---|---|
-| `chain_params` (394 params, incl. 300 preset options) | 70,708 | 54% |
-| `ui_hierarchy` (31 levels) | 26,394 | 20% |
+| `chain_params` (394 params) | 64,780 | 49% |
+| `ui_hierarchy` (31 levels) | 26,478 | 20% |
 
-At 70,708 bytes this module is **108% of the old ceiling** -- it would now be
-rejected outright by a host that has not been upgraded.
+It briefly reached 70,708 bytes -- 108% of the old ceiling -- while the 300
+preset names were still riding in `chain_params` as enum options. Moving preset
+selection to a browser page took 6,233 bytes back out, so the module now fits
+the old ceiling again, at 99% of it. That is not a place to sit: the headroom
+is what makes the current parameter set safe to keep.
 
 ## What is left out
 

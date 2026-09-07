@@ -70,7 +70,11 @@ int main(int argc, char** argv) {
         fprintf(stderr,"FAIL: host is_loading contract\n"); api->destroy_instance(inst); dlclose(lib); return 1;
     }
     const int contractLen=api->get_param(inst,"chain_params",contract,sizeof(contract));
-    if(contractLen<1 || !strstr(contract,"dsp_clock") || !strstr(contract,"LosAngeles2019")) {
+    // The 300 preset names deliberately do NOT appear here any more: preset
+    // selection is a browser page reading one name at a time, not an enum
+    // carrying every option in the contract.
+    if(contractLen<1 || !strstr(contract,"dsp_clock") || !strstr(contract,"flt1_cutoff") ||
+       strstr(contract,"LosAngeles2019")) {
         fprintf(stderr,"FAIL: host chain_params contract (len %d)\n",contractLen);
         api->destroy_instance(inst); dlclose(lib); return 1;
     }

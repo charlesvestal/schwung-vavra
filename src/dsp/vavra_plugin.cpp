@@ -684,16 +684,10 @@ static int getParam(void* context,const char* key,char* buffer,int size) {
     if(!strcmp(key,"name")) return snprintf(buffer,size,"microQ");
     if(!strcmp(key,"loading") || !strcmp(key,"is_loading")) return snprintf(buffer,size,"%d",!s->ready.load() && !s->failed.load() && !inst->workerError.load());
     if(!strcmp(key,"chain_params")) {
-        // Assembled here because the 300 preset options come from the
-        // compiled-in name table, and because the host's ceiling
-        // (SHADOW_PARAM_VALUE_LEN, 65535) REJECTS the whole module when the
-        // answer is longer -- so the write is bounded and reports failure.
-        int used=snprintf(buffer,size,"[%s",vavra::g_chainParamsHead);
-        used+=snprintf(buffer+used,size-used,"%s",R"("type":"enum","default":0,"options":[)");
-        for(size_t i=0;i<sizeof(vavra::g_presetNames)/sizeof(*vavra::g_presetNames) && used<size;++i)
-            used+=snprintf(buffer+used,size-used,"%s\"%s\"",i?",":"",vavra::g_presetNames[i]);
-        if(used>=size) { buffer[0]=0; return -1; }
-        used+=snprintf(buffer+used,size-used,"]},%s]",vavra::g_chainParamsRest);
+        // The host's ceiling (SHADOW_PARAM_VALUE_LEN) REJECTS the whole module
+        // when the answer is longer, so the write is bounded and reports
+        // failure rather than truncating.
+        const int used=snprintf(buffer,size,"[%s]",vavra::g_chainParamsRest);
         if(used>=size) { buffer[0]=0; return -1; }
         return used;
     }
@@ -702,7 +696,10 @@ static int getParam(void* context,const char* key,char* buffer,int size) {
     if(!strcmp(key,"dsp_clock")) return snprintf(buffer,size,"%d",s->clock.load());
     if(!strcmp(key,"gain")) return snprintf(buffer,size,"%d",s->gain.load());
     if(!strcmp(key,"buffer_ms")) return snprintf(buffer,size,"%d",s->targetFill.load()*1000/44100);
+    // The preset page reads these three, one per tick: how many, which one,
+    // and its name. No list ever crosses the wire.
     if(!strcmp(key,"preset")) return snprintf(buffer,size,"%d",s->preset.load());
+    if(!strcmp(key,"preset_count")) return snprintf(buffer,size,"%d",BankCount*PresetsPerBank);
     if(!strcmp(key,"mode")) return snprintf(buffer,size,"%d",s->multiMode.load());
     if(!strcmp(key,"part")) return snprintf(buffer,size,"%d",s->part.load());
     if(!strcmp(key,"part_channel")) return snprintf(buffer,size,"%d",s->partChannel[std::clamp(s->part.load(),1,MultiParts)-1].load());

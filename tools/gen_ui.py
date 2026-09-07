@@ -229,7 +229,12 @@ LEVELS = [
 # Wrapper-owned parameters: not the synth's, so they are declared here rather
 # than derived from the descriptions.
 WRAPPER = [
-    dict(key="preset", name="Preset", type="enum", default=0, options=None),  # filled at runtime
+    # An INDEX, not an enum. The 300 names used to ride in chain_params as
+    # options -- 6,233 bytes on every contract read, and a knob with 300
+    # detents' worth of travel. A preset page reads three scalars (count,
+    # index, name) one per tick instead, so the list size costs nothing, and
+    # it is a door: paging past it does not audition anything.
+    dict(key="preset", name="Preset", type="int", min=0, max=299, default=0),
     dict(key="mode", name="Mode", type="enum", options=["Single", "Multi"], default=0),
     dict(key="part", name="Part", type="int", min=1, max=16, default=1,
          visible_if={"key": "mode", "equals": 1}),
@@ -475,9 +480,17 @@ def build_contract():
     # The landing page: the eight a player reaches for first. Cutoff and
     # resonance adjacent; the filter envelope's A/D/S/R in cells 5-8 so it is
     # one row and the envelope graphic can be drawn across it.
+    # Root is the factory preset browser AND its own knob grid, the shape
+    # osirus/surge/minijv all use. The three selector keys are dropped from
+    # knob pages by the planner, so the eight knobs are all real controls:
+    # filter across the top row, the filter envelope's A/D/S/R across the
+    # second so its graphic gets a contiguous row.
     hierarchy_levels["root"] = {
-        "label": "microQ", "children": None,
-        "knobs": ["preset", "flt1_cutoff", "flt1_resonance", "amp_volume",
+        "label": "microQ",
+        "list_param": "preset", "count_param": "preset_count",
+        "name_param": "preset_name",
+        "children": None,
+        "knobs": ["flt1_cutoff", "flt1_resonance", "flt1_env_mod", "amp_volume",
                   "fenv_attack", "fenv_decay", "fenv_sustain", "fenv_release"],
         "params": [{"key": "preset", "label": "Preset"}] + root_links,
     }
@@ -591,10 +604,7 @@ if __name__ == "__main__":
     # chain_params is emitted in two halves so the 300 preset options can be
     # spliced in at runtime from the compiled-in name table, instead of being
     # written twice.
-    head = json.dumps(params[:1], separators=(",", ":"))[1:-1]     # the preset entry
-    assert '"key":"preset"' in head
-    open_head, close_head = head.split('"type":"enum"', 1)
-    rest = json.dumps(params[1:], separators=(",", ":"))[1:-1]
+    rest = json.dumps(params, separators=(",", ":"))[1:-1]
     hierarchy_json = json.dumps(hierarchy, separators=(",", ":"))
 
     def c_string(text, name):
@@ -629,8 +639,6 @@ if __name__ == "__main__":
         *table,
         "};",
         "",
-        c_string(open_head, "g_chainParamsHead"),
-        c_string('"type":"enum"' + close_head, "g_chainParamsPresetTail"),
         c_string(rest, "g_chainParamsRest"),
         c_string(hierarchy_json, "g_uiHierarchy"),
         "}",
@@ -638,11 +646,11 @@ if __name__ == "__main__":
     ]
     (ROOT / "src/dsp/vavra_ui.h").write_text("\n".join(out))
     print(f"wrote src/dsp/vavra_ui.h: {len(table)} synth params, "
-          f"chain_params {len(head) + len(rest)} bytes + preset options, "
-          f"ui_hierarchy {len(hierarchy_json)} bytes")
+          f"chain_params {len(rest)} bytes, ui_hierarchy {len(hierarchy_json)} bytes")
     cp = json.dumps(params, separators=(",", ":"))
     uh = json.dumps(hierarchy, separators=(",", ":"))
     print(f"{len(params)} chain_params, {len(hierarchy['levels'])} levels")
     print(f"chain_params  {len(cp):>7} bytes")
     print(f"ui_hierarchy  {len(uh):>7} bytes")
-    print(f"(preset options are added at runtime: about 6300 more bytes)")
+    print("(the 300 preset names no longer travel in the contract; the preset "
+          "page reads one name at a time)")

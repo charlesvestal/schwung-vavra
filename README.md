@@ -113,7 +113,7 @@ an undeclared key, non-ASCII text, two cells drawing the same abbreviation, and
 a split envelope. They caught seven bad keys and twelve duplicate labels on
 their first run.
 
-**386 of the microQ's 449 parameters, in 54% of what the host allows** -- the
+**386 of the microQ's 449 parameters, in 49% of what the host allows** -- the
 contract ceiling went from 64 KB to 128 KB in schwung #444, which this module
 is what motivated. At 70,708 bytes it is 108% of the old ceiling, so it
 **requires a host with that change**; an older one rejects it outright. See
@@ -125,6 +125,21 @@ and the filter and envelope graphics are declared rather than left to a
 detector to infer.
 
 ## Presets
+
+**Page 00 is the factory preset browser**, not a knob. `preset` is an index and
+the level declares `list_param` / `count_param` / `name_param`, the shape
+osirus, surge and minijv all use.
+
+It was a 300-option enum, which was wrong twice over: the 300 names rode inside
+`chain_params` on every contract read (6,233 bytes), and selection became a knob
+with roughly 1,200 detents of travel. The browser reads three scalars -- count,
+index, name -- **one per tick**, so 300 entries cost what three would, and it is
+a *door*: paging past it selects nothing, and only a click enters. Once inside,
+the jog auditions on every detent.
+
+The module serves all three; only `preset` is declared in `chain_params` (as an
+int), which is what the fleet does -- `preset_count` and `preset_name` are read
+straight through `get_param`.
 
 `preset` is one enum of 300 options, `A1 LosAngeles2019 T` .. `C100 Init Sound
 2.0`, in Program Change order. Three things about it are not obvious:
