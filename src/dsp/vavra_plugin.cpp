@@ -63,6 +63,10 @@ constexpr uint32_t StallUs=8000;
 // clock -- is what moves the output, and no A/B of this emulator can be
 // bit-exact.
 constexpr int DspClockDefault=50;
+// Percent, where 100 is the engine's own level. It goes past unity because
+// the instrument is quiet -- factory patches measure -27 to -35 dBFS rms at
+// unity -- and the int16 conversion clamps, so a boost clips, never wraps.
+constexpr int GainMax=400;
 // OS 2.23 ships 3 banks of 100. Names live in docs/presets-os223.tsv, dumped
 // by tools/dump_presets.cpp -- but the module reads the CURRENT name off the
 // device's own display rather than from any table, so a different ROM cannot
@@ -102,7 +106,7 @@ struct Shared {
     vavra::Ring<Stereo,8192> audio;
     vavra::Ring<Midi,128> midi;
     vavra::Ring<ParamWrite,128> writes;
-    std::atomic<int> ready{0}, failed{0}, clock{DspClockDefault}, gain{70}, targetFill{TargetFillDefault};
+    std::atomic<int> ready{0}, failed{0}, clock{DspClockDefault}, gain{100}, targetFill{TargetFillDefault};
     // Preset selection is ONE index 0..299 in Program Change order, not a
     // bank plus a number: two params for one choice is two things to keep in
     // step, and the name table is indexed this way anyway.
@@ -608,7 +612,7 @@ static void onMidi(void* context,const uint8_t* bytes,int size,int) {
 static void setParam(void* context,const char* key,const char* value) {
     auto* inst=static_cast<Instance*>(context); if(!inst || !key || !value) return;
     if(!strcmp(key,"dsp_clock")) inst->shm->clock=std::clamp(atoi(value),25,100);
-    if(!strcmp(key,"gain")) inst->shm->gain=std::clamp(atoi(value),0,100);
+    if(!strcmp(key,"gain")) inst->shm->gain=std::clamp(atoi(value),0,GainMax);
     // Buffer in milliseconds: what the user actually trades away is latency.
     if(!strcmp(key,"buffer_ms")) inst->shm->targetFill=std::clamp(atoi(value)*44100/1000,TargetFillMin,TargetFillMax);
     // The child owns the MIDI; these only record the wish and wake it.

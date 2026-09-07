@@ -293,7 +293,13 @@ WRAPPER = [
          default=127),
     dict(key="dsp_clock", name="DSP Clock", short_name="CLOCK", type="int", min=25, max=100,
          default=50, unit="%"),
-    dict(key="gain", name="Gain", type="int", min=0, max=100, default=70),
+    # Unity is 100, and the range goes past it because the instrument is
+    # quiet: at unity its factory patches measure -27 to -35 dBFS rms against
+    # the ~-20 dBFS a Schwung module wants, and only the loudest reaches it.
+    # The default was 70, which threw away 3.1 dB on top of that for no
+    # reason. Above 100 the int16 conversion clamps, so a boost clips rather
+    # than wraps.
+    dict(key="gain", name="Gain", type="int", min=0, max=400, default=100, unit="%"),
     dict(key="buffer_ms", name="Buffer", short_name="BUF", type="int", min=11, max=139,
          default=17, unit="ms"),
 ]

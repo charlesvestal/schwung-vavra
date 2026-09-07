@@ -108,6 +108,25 @@ if os.path.exists(golden_path):
         print(f"  {name:<14} drift {drift:5.2f}  {'PASS' if ok else 'FAIL'}")
     print()
 
+# LEVEL, which the spectral check above cannot see: feature() normalises it
+# away on purpose, so for a long time the module threw away 3.1 dB (a gain
+# default of 70) and every test still passed. Peak is the comparator rather
+# than rms: the emulator is not reproducible, so which second is loudest
+# moves, but the peak of a held note does not.
+print("=== LEVEL: the module must reproduce the engine's own level ===")
+LEVEL_TOLERANCE_DB = 2.5
+for p in sorted(NAMES):
+    cap, ref = f"{BATTERY}/single_{p}.wav", f"{BATTERY}/R{p}.wav"
+    if not (os.path.exists(cap) and os.path.exists(ref)):
+        continue
+    peak = lambda path: max(1.0, float(np.abs(load(path).mean(axis=1)).max()))
+    delta = 20 * np.log10(peak(cap) / peak(ref))
+    ok = abs(delta) <= LEVEL_TOLERANCE_DB
+    if not ok:
+        fails.append(f"level on preset {p}")
+    print(f"  {NAMES[p]:<18} {delta:+5.2f} dB vs the engine   {'PASS' if ok else 'FAIL'}")
+print()
+
 print("=== SINGLE MODE: each capture must identify its OWN preset ===")
 for p in NAMES:
     best, dist, second, _ = identify(f"{BATTERY}/single_{p}.wav")

@@ -8,6 +8,20 @@ runs the microQ's 16-part Multi. At the default 50% DSP clock every cell
 measured zero underruns, including eight voices across two parts. No state
 save/restore and no editable patch parameters yet -- see [Next](#next).
 
+## Level
+
+**Gain 100 is the engine's own level**, and the range runs to 400 because the
+instrument is quiet. Measured against an offline render of the same engine, at
+unity the factory patches sit at **-27 to -35 dBFS rms** -- against the ~-20
+dBFS that is healthy for a Schwung module -- and only the loudest, A1, reaches
+it. Above 100 the int16 conversion clamps, so a boost clips rather than wraps.
+
+The default used to be 70, throwing away another 3.1 dB for no reason, and
+**the battery could not see it**: `feature()` normalises level away so that an
+identity test is not secretly a gain test. It now checks level separately, by
+PEAK against the engine -- the emulator is not reproducible, so which second is
+loudest moves, but the peak of a held note does not.
+
 ## Verifying the audio
 
 `tests/audio_battery.sh` captures what `render_block` actually hands the host
