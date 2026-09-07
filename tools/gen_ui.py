@@ -71,6 +71,37 @@ LABEL_FIX = {
     "Max Notes": "Max Notes", "T Factor": "Timing", "Velo Mode": "Velocity",
 }
 
+# The renderer squeezes a label it cannot fit, and on an unknown word the
+# squeeze DROPS VOWELS: "Sort Order" drew SORDER, "Phaser Center" drew PCENTE,
+# "Direction" drew DIRCTN. A third of the cells were doing this. These are
+# keyed by the LABEL, so one entry fixes every param that shares a name.
+LABEL_SHORT = {
+    "Mod Src": "MSRC", "Mod Amount": "MAMT", "Mod Amt": "MAMT",
+    "Direction": "DIR", "Max Notes": "MAXN", "Octaves": "OCT",
+    "Pat Reset": "PRST", "Sort Order": "SORT", "Pat Length": "PLEN",
+    "Env Amt": "ENV", "FM Amt": "FMAMT", "FM Source": "FMSRC",
+    "Keytrack": "KTRK", "Sync Speed": "SYNSP", "Cut Mod": "CMOD",
+    "Pan Src": "PNSRC", "Pan Mod": "PNMOD", "Atk Level": "ATKLV",
+    "Pulse Width": "PW", "PWM Source": "PWSRC", "Sub Div": "SUBDV",
+    "Sub Volume": "SUBVL", "Bend": "BEND", "Trigger": "TRIG",
+    # What is left of an effect parameter once the page's own effect name is
+    # stripped off it.
+    "Speed": "SPEED", "Depth": "DEPTH", "Delay": "DELAY", "Feedback": "FBACK",
+    "Polarity": "POL", "Center": "CTR", "Spacing": "SPACE", "Drive": "DRIVE",
+    "Post Gain": "PGAIN", "Cutoff": "CUT", "Mix": "MIX", "Type": "TYPE",
+    "Bands": "BANDS", "Bandwidth": "BWDTH", "Attack": "ATK", "Decay": "DEC",
+    "Release": "REL", "Freq Shift": "FSHFT", "Input": "INPUT",
+    "Analysis Signal": "ANSIG", "Analysis Freq High": "AFHI",
+    "Analysis Freq Low": "AFLO",
+    "EQ Level High": "EQHI", "EQ Level Low": "EQLO", "EQ Level Mid": "EQLMD",
+    "EQ Band Mid": "EQBMD",
+    "Autopan": "APAN", "Pre Delay": "PREDL", "Diffusion": "DIFF",
+    "Damping": "DAMP", "Highpass": "HPF", "Lowpass": "LPF",
+    "Room Size": "ROOM", "Ring Mod Level": "RMLVL", "Ring Mod Source": "RMSRC",
+    "Sample And Hold": "S+H", "Overdrive": "ODRV", "Chorus Delay L": "CDLYL",
+    "Offset Hi": "OFSHI", "Offset S": "OFSS", "Amount": "AMT", "Pattern": "PAT",
+}
+
 SHORT = {
     "octave": "OCT", "semitone": "SEMI", "semi": "SEMI", "detune": "DTUNE",
     "bend": "BEND", "keytrack": "KTRK", "fm_source": "FMSRC", "fm_amt": "FMAMT",
@@ -87,6 +118,22 @@ SHORT = {
     "feedback": "FDBCK", "depth": "DEPTH", "speed2": "SPD2", "polarity": "POL",
 }
 
+FX_PREFIXES = ("Chorus", "Flanger", "Phaser", "Overdrive", "Delay", "Reverb",
+               "Vocoder", "Five", "Five FX")
+
+
+def strip_effect(label, key):
+    """On an FX page only one effect's controls are visible, so its name in
+    every label is dead weight -- and it is what pushed "Phaser Center" into
+    the squeeze that drew PCENTE."""
+    if not re.match(r"^fx[12]_", key):
+        return label
+    for prefix in sorted(FX_PREFIXES, key=len, reverse=True):
+        if label.startswith(prefix + " "):
+            return label[len(prefix) + 1:]
+    return label
+
+
 def label_for(name, key, level_prefix):
     """Page label: strip the prefix the page already carries."""
     text = name
@@ -97,7 +144,7 @@ def label_for(name, key, level_prefix):
     text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", text)
     text = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", text).strip()
     text = LABEL_FIX.get(text, text)
-    return text or name
+    return strip_effect(text or name, key)
 
 def short_for(key):
     tail = key.split("_", 1)[1] if "_" in key else key
@@ -359,6 +406,29 @@ def slot_label(key):
 # Both groups sit inside one row of four by construction -- an envelope's
 # A/D/S/R are cells 1-4 of their level, cutoff and resonance are adjacent --
 # and a group split across the row break is not drawn at all.
+# The enum square is roughly four characters wide. "24 dB LP" draws as
+# "24 DB" -- the part that says LOWPASS is the part that gets cut -- and
+# "First Note" as "FIR NOT". These are per VALUE LIST, so one entry fixes
+# every parameter drawn from it.
+SHORT_OPTIONS = {
+    "filterType": ["Off", "24LP", "12LP", "24BP", "12BP", "24HP", "12HP",
+                   "24NO", "12NO", "CB+", "CB-"],
+    "envMode": ["ADSR", "ADS2", "ONE", "LP12", "LPAL"],
+    "arpVeloMode": ["EACH", "1ST", "LAST"],
+    "arpDirection": ["UP", "DOWN", "ALTU", "ALTD"],
+    "arpSortOrder": ["PLAY", "REV", "NLH", "NHL", "VLH", "VHL"],
+    "noiseMode": ["NOIS", "EXTL", "EXTR", "EXLR"],
+    "glideMode": ["PORT", "FPRT", "GLIS", "", "FGLS"],
+    "unisonoMode": ["OFF", "DUAL", "3", "4", "5", "6"],
+    "filterRouting": ["PARA", "SER"],
+    "lfoWaves": ["SINE", "TRI", "SQR", "SAW", "RAND", "S+H"],
+    "oscWaves": ["OFF", "PULS", "SAW", "TRI", "SINE", "ALT1", "ALT2"],
+    "fx1Type": ["OFF", "CHOR", "FLNG", "PHAS", "ODRV", "5FX", "VOC"],
+    "fx2Type": ["OFF", "CHOR", "FLNG", "PHAS", "ODRV", "5FX", "VOC", "DLY",
+                "REVB", "5.1D", "5.1C"],
+    "negPos": ["NEG", "POS"],
+}
+
 VIZ = {}
 for _prefix in ("fenv", "aenv", "env3", "env4"):
     for _role in ("attack", "decay", "sustain", "release"):
@@ -370,7 +440,7 @@ for _n in (1, 2):
 
 def param_entry(key, param, valuelists, level_id=None):
     entry = {"key": key, "name": label_for(param["name"], key, level_id or "")}
-    short = short_for(key)
+    short = LABEL_SHORT.get(entry["name"]) or short_for(key)
     slot_name, slot_short = slot_label(key)
     if slot_name:
         entry["name"], short = slot_name, slot_short
@@ -385,6 +455,16 @@ def param_entry(key, param, valuelists, level_id=None):
     if options and len(options) > 1 and all(o for o in options):
         entry["type"] = "enum"
         entry["options"] = options
+        # Exact length, and checked. A list merely LONGER than the real one
+        # was applied by index and quietly relabelled every value: guessing
+        # four names for arpVeloMode's three drew "FIX" over "Each Note".
+        brief = SHORT_OPTIONS.get(param.get("toText"))
+        if brief is not None:
+            if len(brief) != len(options):
+                raise SystemExit(
+                    f"short_options for {param.get('toText')} has {len(brief)} entries "
+                    f"but the value list has {len(options)} ({param['name']})")
+            entry["short_options"] = brief
         # Only carry a default that differs from the first option: every byte
         # of chain_params counts against a hard host ceiling.
         initial = max(0, param.get("default", param["min"]) - param["min"])
@@ -605,18 +685,31 @@ def check(params, hierarchy, by_key, levels):
         if p.get("type") == "enum" and p["key"] != "preset" and len(p.get("options", [])) < 2:
             problems.append(f"enum with fewer than two options: {p['key']}")
 
-    # 5. Two cells on one page must not draw the same label.
+    # 5. Two cells that can be on screen TOGETHER must not draw the same
+    #    label. Gating matters here: an FX page declares every effect's
+    #    controls and shows one effect's at a time, so two "Depth" cells behind
+    #    different effect types never meet. Two behind the SAME gate do.
     for name, level in hierarchy["levels"].items():
         knobs = level["knobs"]
-        labels = {item["key"]: item.get("short_name") or item["label"]
-                  for item in level["params"] if "key" in item}
+        labels, gates = {}, {}
+        for item in level["params"]:
+            if "key" not in item:
+                continue
+            labels[item["key"]] = item.get("short_name") or item["label"]
+            gate = item.get("visible_if")
+            gates[item["key"]] = (gate["key"], gate.get("equals")) if gate else None
+
+        def can_coexist(a, b):
+            ga, gb = gates.get(a), gates.get(b)
+            return ga is None or gb is None or ga == gb
+
         for page in range(0, len(knobs), 8):
-            seen = {}
-            for key in knobs[page:page + 8]:
-                label = labels.get(key, key)
-                if label in seen:
-                    problems.append(f"{name} page {page//8 + 1}: {seen[label]} and {key} both draw {label!r}")
-                seen[label] = key
+            window = knobs[page:page + 8]
+            for i, key in enumerate(window):
+                for other in window[i + 1:]:
+                    if labels.get(key, key) == labels.get(other, other) and can_coexist(key, other):
+                        problems.append(f"{name} page {page//8 + 1}: {key} and {other} "
+                                        f"both draw {labels.get(key, key)!r}")
 
     # 6b. A modulation slot's three cells must not straddle a page break.
     for name, level in hierarchy["levels"].items():
