@@ -58,3 +58,31 @@ caller arrives on the callback thread, where `malloc` is a realtime violation.
 
 **Sequencing.** A module larger than 64 KB is rejected by a host that has not
 been upgraded, so this module requires schwung >= #444 on the device.
+
+## The unfinished thread: re-planning fingerprints the whole contract
+
+`planPages` computes `fingerprintOf([hierarchy, chainParams, mode])` on every
+call -- a `JSON.stringify` of the entire contract followed by a per-character
+FNV loop over every one of those characters. `replanIfCondition` calls
+`planPages` on **every detent of a gating knob**, so turning an FX type hashes
+94 KB per detent.
+
+Measured in node, over the fleet's contracts:
+
+| module | contract | fingerprint |
+|---|---|---|
+| vavra | 94 KB | 0.78 ms |
+| minijv | 83 KB | 0.39 ms |
+| surge | 64 KB | 0.30 ms |
+| osirus | 38 KB | 0.19 ms |
+| obxd | 9 KB | 0.04 ms |
+
+Node is a JIT; the device runs QuickJS on an A72, where a 94,000-iteration
+character loop is far slower. That is what stalls the screen while the type
+knob turns.
+
+The fingerprint exists to notice a contract that CHANGED -- osirus swaps
+`rom_index`'s options from `["(loading)"]` to the real models -- but on a
+re-plan driven by a VALUE change the objects are identical by reference, so
+memoising it on `(hierarchy, chainParams, mode)` identity would skip it
+entirely. Not attempted; the module was parked first.

@@ -2,11 +2,24 @@
 
 Waldorf microQ for Schwung/Move, on gearmulator's `mqLib`.
 
-**Status: playable and multitimbral, measured on Move.** The module builds,
-boots the firmware, plays, selects any of the 300 factory sounds by name, and
-runs the microQ's 16-part Multi. At the default 50% DSP clock every cell
-measured zero underruns, including eight voices across two parts. No state
-save/restore and no editable patch parameters yet -- see [Next](#next).
+**Status: parked, 2026-09-07.** It works -- boots, plays, 386 of the microQ's
+449 parameters across Play/Edit/Multi, per-part multitimbral editing, all
+verified on hardware. It is parked because the instrument is not enjoyable on
+this device, which the measurements agree with: its factory patches sit at
+-27 to -35 dBFS rms where a Schwung module wants about -20, it takes 13-20 s
+to boot, it costs ~1.5 cores, and its depth needs 41 pages of knob grid.
+
+Everything here is resumable: the UI is generated from gearmulator's own
+parameter descriptions by `tools/gen_ui.py`, so regenerating after an upstream
+change is one command, and `tests/audio_battery.sh` still scores the audio
+against an offline render of the same engine.
+
+One thing was left unfinished: changing an FX type still stalls the screen.
+That is a HOST cost, not this module's -- `planPages` fingerprints the whole
+contract on every re-plan (`JSON.stringify` plus a per-character hash), and a
+re-plan follows every detent of a gating knob. At 94 KB this module is the
+largest contract in the fleet, so it hurts here first, but minijv (83 KB) and
+surge (64 KB) pay it too. See the note in docs/CONTRACT_SIZE.md.
 
 ## Level
 
