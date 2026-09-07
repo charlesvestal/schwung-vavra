@@ -235,13 +235,15 @@ WRAPPER = [
     # index, name) one per tick instead, so the list size costs nothing, and
     # it is a door: paging past it does not audition anything.
     dict(key="preset", name="Preset", type="int", min=0, max=299, default=0),
-    dict(key="mode", name="Mode", type="enum", options=["Single", "Multi"], default=0),
-    dict(key="part", name="Part", type="int", min=1, max=16, default=1,
-         visible_if={"key": "mode", "equals": 1}),
+    # One switch drives both the UI tree and the firmware. Play and Edit are
+    # two views of the same Single sound; Multi is the instrument's own other
+    # mode, so selecting it switches the firmware too.
+    dict(key="mode", name="Mode", type="enum", options=["Play", "Edit", "Multi"], default=0),
+    dict(key="part", name="Part", type="int", min=1, max=16, default=1),
     dict(key="part_channel", name="Part Channel", short_name="PCHAN", type="int", min=0, max=16,
-         default=0, visible_if={"key": "mode", "equals": 1}),
+         default=0),
     dict(key="part_volume", name="Part Volume", short_name="PVOL", type="int", min=0, max=127,
-         default=127, visible_if={"key": "mode", "equals": 1}),
+         default=127),
     dict(key="dsp_clock", name="DSP Clock", short_name="CLOCK", type="int", min=25, max=100,
          default=50, unit="%"),
     dict(key="gain", name="Gain", type="int", min=0, max=100, default=70),
@@ -471,10 +473,54 @@ def build_contract():
         }
         root_links.append({"level": level["id"], "label": level["label"]})
 
+    # Three entry levels, one per mode. Play is the default and is four pages:
+    # the preset browser, the macros, the two effects and the arpeggiator.
+    # Edit is the same sound with the whole instrument behind it. Multi is the
+    # parts browser -- and because a Single parameter change carries a part
+    # byte, the Play and Edit pages edit whichever part is selected there.
+    macros = ["flt1_cutoff", "flt1_resonance", "flt1_env_mod", "amp_volume",
+              "fenv_attack", "fenv_decay", "fenv_sustain", "fenv_release"]
+    browser = {"list_param": "preset", "count_param": "preset_count",
+               "name_param": "preset_name"}
+    hierarchy_levels["play"] = {
+        "label": "microQ", **browser, "children": None,
+        "knobs": macros,
+        "params": [{"key": "mode", "label": "Mode"},
+                   {"key": "preset", "label": "Preset"},
+                   {"level": "fx1", "label": "FX 1"}, {"level": "fx2", "label": "FX 2"},
+                   {"level": "arp", "label": "Arpeggiator"},
+                   {"level": "settings", "label": "Settings"}],
+    }
+    hierarchy_levels["edit"] = {
+        "label": "microQ", **browser, "children": None,
+        "knobs": macros,
+        "params": [{"key": "mode", "label": "Mode"},
+                   {"key": "preset", "label": "Preset"}] + root_links,
+    }
+    # Multi's browser is the PRESET browser, not a parts browser: a mode's
+    # entry level cannot title its own browser (page_plan falls back to
+    # "Presets" for the walk root), so a parts list there would be labelled
+    # Presets and lie. The part is a knob instead, and the browser then means
+    # what it says -- choose the part, then choose its sound.
+    hierarchy_levels["multi"] = {
+        "label": "Parts", **browser, "children": None,
+        "knobs": ["part", "part_channel", "part_volume"],
+        "params": [{"key": "mode", "label": "Mode"},
+                   {"key": "part", "label": "Part"},
+                   {"key": "part_channel", "label": "Part Channel"},
+                   {"key": "part_volume", "label": "Part Volume"},
+                   {"level": "settings", "label": "Settings"}],
+        # Deliberately no link to Play or Edit. Linking them would pull the
+        # whole editor into this mode's walk -- 45 pages instead of four --
+        # and it is not needed: a Single parameter change carries a part byte,
+        # so once a part is selected here, switching mode with the Mode cell
+        # points the editor at THAT part.
+    }
     hierarchy_levels["settings"] = {
         "label": "Settings", "children": None,
         "knobs": ["dsp_clock", "gain", "buffer_ms"],
         "params": [{"key": "preset", "label": "Preset"}, {"key": "mode", "label": "Mode"},
+                   {"key": "part", "label": "Part"},
                    {"key": "part", "label": "Part"},
                    {"key": "part_channel", "label": "Part Channel"},
                    {"key": "part_volume", "label": "Part Volume"},
@@ -491,16 +537,9 @@ def build_contract():
     # knob pages by the planner, so the eight knobs are all real controls:
     # filter across the top row, the filter envelope's A/D/S/R across the
     # second so its graphic gets a contiguous row.
-    hierarchy_levels["root"] = {
-        "label": "microQ",
-        "list_param": "preset", "count_param": "preset_count",
-        "name_param": "preset_name",
-        "children": None,
-        "knobs": ["flt1_cutoff", "flt1_resonance", "flt1_env_mod", "amp_volume",
-                  "fenv_attack", "fenv_decay", "fenv_sustain", "fenv_release"],
-        "params": [{"key": "preset", "label": "Preset"}] + root_links,
-    }
-    hierarchy = {"pad_layout": "chromatic", "levels": hierarchy_levels}
+
+    hierarchy = {"pad_layout": "chromatic", "modes": ["play", "edit", "multi"],
+                 "mode_param": "mode", "levels": hierarchy_levels}
     return params, hierarchy, by_key, levels
 
 

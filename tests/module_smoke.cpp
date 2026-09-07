@@ -183,8 +183,12 @@ int main(int argc, char** argv) {
             snprintf(text,sizeof(text),"%d",volume);      api->set_param(inst,"part_volume",text);
             snprintf(text,sizeof(text),"%d",presetIndex); api->set_param(inst,"preset",text);
         };
+        // Mode is three-valued now: 0 Play, 1 Edit, 2 Multi. Writing "1" for
+        // multi selected EDIT, which leaves the firmware in Single -- where
+        // every channel plays the one sound, so the multi checks passed while
+        // testing nothing.
         const bool multi=!strcmp(scenarioMode,"multi");
-        api->set_param(inst,"mode",multi?"1":"0");
+        api->set_param(inst,"mode",multi?"2":"0");
         if(multi) {
             setPart(1,envInt("VAVRA_PART1",0),envInt("VAVRA_PART1_CH",1),envInt("VAVRA_PART1_VOL",127));
             setPart(2,envInt("VAVRA_PART2",16),envInt("VAVRA_PART2_CH",2),envInt("VAVRA_PART2_VOL",127));

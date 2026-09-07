@@ -111,6 +111,8 @@ struct Shared {
     // firmware boots in SINGLE mode on omni, where every channel plays the one
     // sound -- which is why a slot's forward channel appears to do nothing.
     std::atomic<int> multiMode{0}, part{1}, multiReady{0};
+    // The UI mode: 0 Play, 1 Edit, 2 Multi. Only Multi changes the firmware.
+    std::atomic<int> uiMode{0};
     std::atomic<int> partPreset[MultiParts]{}, partChannel[MultiParts]{}, partVolume[MultiParts]{};
     char lcdName[24]{};
     // What the host last WROTE, verbatim, so a value we could not parse is
@@ -547,7 +549,11 @@ static int parseEnum(const char* value,const char* const* options,int count) {
     for(int i=0;i<count;++i) if(!strcasecmp(scan,options[i])) return i;
     return -1;
 }
-static const char* const g_modeOptions[]={"Single","Multi"};
+// Play and Edit are two views of the same Single sound; Multi is the
+// instrument's own other mode. So the UI mode has three values and the
+// FIRMWARE mode has two, and this is the mapping between them.
+static const char* const g_modeOptions[]={"Play","Edit","Multi"};
+constexpr int UiModeMulti=2;
 // The generated table is sorted by key, so this is a binary search.
 //
 // It was a linear strcmp over 278 entries, which a page repaint pays eight
@@ -631,11 +637,14 @@ static void setParam(void* context,const char* key,const char* value) {
     }
     if(!strcmp(key,"mode")) {
         snprintf(inst->shm->lastModeWrite,sizeof(inst->shm->lastModeWrite),"%s",value);
-        const int parsed=parseEnum(value,g_modeOptions,2);
+        const int parsed=parseEnum(value,g_modeOptions,3);
         if(parsed<0) return;
-        inst->shm->multiMode=parsed;
+        inst->shm->uiMode=parsed;
+        const int multi=(parsed==UiModeMulti) ? 1 : 0;
+        if(multi==inst->shm->multiMode.load()) return;   // Play <-> Edit is a UI move only
+        inst->shm->multiMode=multi;
         inst->shm->writes.push({static_cast<uint16_t>(mqLib::GlobalParameter::SingleMultiMode),
-                                static_cast<uint8_t>(parsed),0});
+                                static_cast<uint8_t>(multi),0});
     }
     // The part selector is the module's own: it says which part the part keys
     // below address, and writes nothing to the firmware.
@@ -700,7 +709,7 @@ static int getParam(void* context,const char* key,char* buffer,int size) {
     // and its name. No list ever crosses the wire.
     if(!strcmp(key,"preset")) return snprintf(buffer,size,"%d",s->preset.load());
     if(!strcmp(key,"preset_count")) return snprintf(buffer,size,"%d",BankCount*PresetsPerBank);
-    if(!strcmp(key,"mode")) return snprintf(buffer,size,"%d",s->multiMode.load());
+    if(!strcmp(key,"mode")) return snprintf(buffer,size,"%d",s->uiMode.load());
     if(!strcmp(key,"part")) return snprintf(buffer,size,"%d",s->part.load());
     if(!strcmp(key,"part_channel")) return snprintf(buffer,size,"%d",s->partChannel[std::clamp(s->part.load(),1,MultiParts)-1].load());
     if(!strcmp(key,"part_volume")) return snprintf(buffer,size,"%d",s->partVolume[std::clamp(s->part.load(),1,MultiParts)-1].load());
