@@ -458,6 +458,12 @@ def build_contract():
             item = {"key": key, "label": entry["name"]}
             if "short_name" in entry:
                 item["short_name"] = entry["short_name"]
+            # The condition has to be HERE as well as on the chain_params
+            # entry: the planner reads visible_if off the level's own params
+            # (page_plan.mjs isHiddenParam), so a gate declared only in
+            # chain_params hides nothing and every gated cell is drawn.
+            if "visible_if" in entry:
+                item["visible_if"] = entry["visible_if"]
             entries.append(item)
         hierarchy_levels[level["id"]] = {
             "label": level["label"], "children": None,
