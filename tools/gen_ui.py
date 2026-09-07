@@ -503,10 +503,11 @@ def build_contract():
     # Presets and lie. The part is a knob instead, and the browser then means
     # what it says -- choose the part, then choose its sound.
     hierarchy_levels["multi"] = {
-        "label": "Parts", **browser, "children": None,
-        "knobs": ["part", "part_channel", "part_volume"],
+        "label": "Parts", **browser,
+        "children": None,
+        "knobs": ["part_channel", "part_volume"],
         "params": [{"key": "mode", "label": "Mode"},
-                   {"key": "part", "label": "Part"},
+                   {"level": "parts", "label": "Parts"},
                    {"key": "part_channel", "label": "Part Channel"},
                    {"key": "part_volume", "label": "Part Volume"},
                    {"level": "settings", "label": "Settings"}],
@@ -516,11 +517,20 @@ def build_contract():
         # so once a part is selected here, switching mode with the Mode cell
         # points the editor at THAT part.
     }
+    # The part chooser is its OWN level so it can be titled. A mode's entry
+    # level cannot name its own list page -- page_plan falls back to the walk
+    # root's naming -- so the list sat there labelled "Main". It writes nothing
+    # until a row is clicked, and each row carries the part's channel and the
+    # sound it holds.
+    hierarchy_levels["parts"] = {
+        "label": "Parts",
+        "items_param": "part_list", "select_param": "part",
+        "children": None, "knobs": [], "params": [],
+    }
     hierarchy_levels["settings"] = {
         "label": "Settings", "children": None,
         "knobs": ["dsp_clock", "gain", "buffer_ms"],
         "params": [{"key": "preset", "label": "Preset"}, {"key": "mode", "label": "Mode"},
-                   {"key": "part", "label": "Part"},
                    {"key": "part", "label": "Part"},
                    {"key": "part_channel", "label": "Part Channel"},
                    {"key": "part_volume", "label": "Part Volume"},

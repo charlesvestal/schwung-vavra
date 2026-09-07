@@ -43,6 +43,29 @@ Two ways this test lied before it was right, both worth keeping in mind:
 
 ## Multi mode
 
+**The part is chosen from a list, not a knob.** As a knob it was an enum
+sitting on the same page as the controls it silently re-pointed -- you could
+not see which part you were editing without reading the cell you had just
+turned. `Parts` is its own level so it can be titled (a mode's entry level
+cannot name its own list page), it writes nothing until a row is clicked, and
+each row carries the part's channel and the sound it holds:
+
+```
+1 ch1 A1 LosAngeles2019 T
+2 ch2 B1 Jazz Percssn WMF
+3 ch3 A3 Chor 2.0 S
+```
+
+**Selecting a part points the whole editor at it.** A Single parameter change
+carries a part byte, so with Part 2 selected, `amp_volume=0` silences part 2
+and leaves part 1 playing -- measured: channel 1 at peak 14000, channel 2 at 4.
+
+**Two parts holding the SAME sound share its edit buffer**, so editing one
+edits both. That is the instrument, not the module: the first run of this test
+gave both parts the same preset and both went silent, which looked like the
+part byte being ignored.
+
+
 The firmware boots in **SINGLE mode on omni**: one sound, every channel, which
 is why a slot's forward channel appears to do nothing. `mode` switches it to
 Multi, where the 16 parts each have their own sound, MIDI channel and volume --

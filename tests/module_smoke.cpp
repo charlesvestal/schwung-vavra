@@ -204,7 +204,10 @@ int main(int argc, char** argv) {
         }
         // VAVRA_SET="key=value,key=value" exercises the generated synth
         // parameters through the same path the knob grid uses.
-        if(getenv("VAVRA_PRESET") && getenv("VAVRA_SET"))
+        // Assigning parts sends a whole Multi, which makes each part LOAD its
+        // sound and so resets that part's parameters. A parameter written
+        // before that lands is wiped, which reads as "the edit did not route".
+        if((getenv("VAVRA_PRESET") || multi) && getenv("VAVRA_SET"))
             for(int i=0;i<345;++i) { api->render_block(inst,audio,128);
                 std::this_thread::sleep_for(std::chrono::microseconds(2902)); }
         if(const char* sets=getenv("VAVRA_SET")) {
@@ -220,7 +223,11 @@ int main(int argc, char** argv) {
         if(const char* gets=getenv("VAVRA_GET")) {
             char copy[512]; snprintf(copy,sizeof(copy),"%s",gets);
             for(char* item=strtok(copy,","); item; item=strtok(nullptr,",")) {
-                char got[128]{};
+                // Big enough for a list answer: at 128 bytes the module
+                // correctly stopped after two of sixteen parts, and the
+                // truncation looked like the module's fault.
+                static char got[8192];
+                got[0]=0;
                 const int n=api->get_param(inst,item,got,sizeof(got));
                 printf("get %s -> %s (len %d)\n",item,got,n);
             }

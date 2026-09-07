@@ -708,6 +708,21 @@ static int getParam(void* context,const char* key,char* buffer,int size) {
     // The preset page reads these three, one per tick: how many, which one,
     // and its name. No list ever crosses the wire.
     if(!strcmp(key,"preset")) return snprintf(buffer,size,"%d",s->preset.load());
+    // The parts, as a list the UI can show. A selector knob that silently
+    // re-points the rest of its own page is not a part chooser; this is one.
+    // Each row carries the part's channel and the sound it holds.
+    if(!strcmp(key,"part_list")) {
+        int used=snprintf(buffer,size,"[");
+        for(int slot=0;slot<MultiParts && used<size-64;++slot) {
+            const int channel=s->partChannel[slot].load();
+            const int index=std::clamp(s->partPreset[slot].load(),0,BankCount*PresetsPerBank-1);
+            used+=snprintf(buffer+used,size-used,
+                "%s{\"index\":%d,\"label\":\"%d ch%d %s\"}",
+                slot?",":"",slot+1,slot+1,channel?channel:0,vavra::g_presetNames[index]);
+        }
+        used+=snprintf(buffer+used,size-used,"]");
+        return used<size ? used : -1;
+    }
     if(!strcmp(key,"preset_count")) return snprintf(buffer,size,"%d",BankCount*PresetsPerBank);
     if(!strcmp(key,"mode")) return snprintf(buffer,size,"%d",s->uiMode.load());
     if(!strcmp(key,"part")) return snprintf(buffer,size,"%d",s->part.load());

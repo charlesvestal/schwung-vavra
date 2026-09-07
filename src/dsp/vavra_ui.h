@@ -1349,12 +1349,13 @@ static const char g_uiHierarchy[] =
     "p\",\"label\":\"Arpeggiator\"},{\"level\":\"arpsteps\",\"label\":\"Arp Pattern\"},{\"level\":\"voice\",\"label\":\"Voice"
     "\"},{\"level\":\"fx1\",\"label\":\"FX 1\"},{\"level\":\"fx2\",\"label\":\"FX 2\"}]},\"multi\":{\"label\":\"Parts\",\"list_pa"
     "ram\":\"preset\",\"count_param\":\"preset_count\",\"name_param\":\"preset_name\",\"children\":null,\"knobs\":[\"part"
-    "\",\"part_channel\",\"part_volume\"],\"params\":[{\"key\":\"mode\",\"label\":\"Mode\"},{\"key\":\"part\",\"label\":\"Part\""
-    "},{\"key\":\"part_channel\",\"label\":\"Part Channel\"},{\"key\":\"part_volume\",\"label\":\"Part Volume\"},{\"level\""
-    ":\"settings\",\"label\":\"Settings\"}]},\"settings\":{\"label\":\"Settings\",\"children\":null,\"knobs\":[\"dsp_clock"
-    "\",\"gain\",\"buffer_ms\"],\"params\":[{\"key\":\"preset\",\"label\":\"Preset\"},{\"key\":\"mode\",\"label\":\"Mode\"},{\"ke"
-    "y\":\"part\",\"label\":\"Part\"},{\"key\":\"part\",\"label\":\"Part\"},{\"key\":\"part_channel\",\"label\":\"Part Channel\""
-    "},{\"key\":\"part_volume\",\"label\":\"Part Volume\"},{\"key\":\"dsp_clock\",\"label\":\"DSP Clock\"},{\"key\":\"gain\","
-    "\"label\":\"Gain\"},{\"key\":\"buffer_ms\",\"label\":\"Buffer\"}]}}}";
+    "_channel\",\"part_volume\"],\"params\":[{\"key\":\"mode\",\"label\":\"Mode\"},{\"level\":\"parts\",\"label\":\"Parts\"},{"
+    "\"key\":\"part_channel\",\"label\":\"Part Channel\"},{\"key\":\"part_volume\",\"label\":\"Part Volume\"},{\"level\":\"s"
+    "ettings\",\"label\":\"Settings\"}]},\"parts\":{\"label\":\"Parts\",\"items_param\":\"part_list\",\"select_param\":\"pa"
+    "rt\",\"children\":null,\"knobs\":[],\"params\":[]},\"settings\":{\"label\":\"Settings\",\"children\":null,\"knobs\":["
+    "\"dsp_clock\",\"gain\",\"buffer_ms\"],\"params\":[{\"key\":\"preset\",\"label\":\"Preset\"},{\"key\":\"mode\",\"label\":\"M"
+    "ode\"},{\"key\":\"part\",\"label\":\"Part\"},{\"key\":\"part_channel\",\"label\":\"Part Channel\"},{\"key\":\"part_volum"
+    "e\",\"label\":\"Part Volume\"},{\"key\":\"dsp_clock\",\"label\":\"DSP Clock\"},{\"key\":\"gain\",\"label\":\"Gain\"},{\"ke"
+    "y\":\"buffer_ms\",\"label\":\"Buffer\"}]}}}";
 
 }
