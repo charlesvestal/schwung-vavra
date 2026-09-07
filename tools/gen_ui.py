@@ -146,11 +146,24 @@ def flt(n):
             f"flt{n}_pan_mod_source", f"flt{n}_pan_mod"]
     return L(f"flt{n}", f"Filter {n}", keys, knobs=keys[:8])
 
-def mods(prefix, label, count, suffix):
-    keys = []
-    for slot in range(1, count + 1):
-        keys += [f"{prefix}{slot}_source", f"{prefix}{slot}_destination", f"{prefix}{slot}_amount"]
-    return L(prefix, label, keys, knobs=keys)
+def mods(prefix, label, count):
+    """One level per PAIR of slots -- six knobs, one page, no slot cut in half.
+
+    A slot is three parameters, and eight knobs to a page divides badly: four
+    slots in one level pages as 8 + 4, which puts slot 3's Source and Dest at
+    the end of page one and its Amount at the start of page two. Six keys make
+    one page of two whole slots."""
+    levels = []
+    for first in range(1, count + 1, 2):
+        keys = []
+        for slot in (first, first + 1):
+            if slot > count:
+                continue
+            keys += [f"{prefix}{slot}_source", f"{prefix}{slot}_destination",
+                     f"{prefix}{slot}_amount"]
+        span = f"{first}-{first + 1}" if first + 1 <= count else f"{first}"
+        levels.append(L(f"{prefix}{first}", f"{label} {span}", keys, knobs=keys))
+    return levels
 
 LEVELS = [
     osc(1), osc(2), osc(3, sub=False),
@@ -178,8 +191,8 @@ LEVELS = [
     # every slot repeats its source and destination option lists verbatim, and
     # sixteen slots cost 18 KB of a 64 KB contract ceiling that the host
     # REJECTS the whole module for exceeding. See docs/CONTRACT_SIZE.md.
-    mods("fmod", "Fast Mods", 4, "F"),
-    mods("smod", "Mod Matrix", 4, "S"),
+    *mods("fmod", "Fast Mod", 4),
+    *mods("smod", "Mod Slot", 4),
     L("modif", "Modifiers",
       [f"modif{n}_{field}" for n in range(1, 5)
        for field in ("source1", "source2", "operator", "constant")]),
@@ -458,6 +471,23 @@ def check(params, hierarchy, by_key, levels):
                     problems.append(f"{name} page {page//8 + 1}: {seen[label]} and {key} both draw {label!r}")
                 seen[label] = key
 
+    # 6b. A modulation slot's three cells must not straddle a page break.
+    for name, level in hierarchy["levels"].items():
+        knobs = level["knobs"]
+        for page in range(0, len(knobs), 8):
+            window = knobs[page:page + 8]
+            slots = {}
+            for key in window:
+                match = re.match(r"^([fs]mod\d+)_", key)
+                if match:
+                    slots.setdefault(match.group(1), 0)
+                    slots[match.group(1)] += 1
+            for slot, seen in slots.items():
+                total = sum(1 for k in knobs if k.startswith(slot + "_"))
+                if seen != total:
+                    problems.append(f"{name} page {page//8 + 1}: slot {slot} split "
+                                    f"({seen} of {total} cells)")
+
     # 6. An envelope's A/D/S/R must sit inside ONE row of four cells or the
     #    graphic is not drawn at all and the members fall back to dials.
     for name, level in hierarchy["levels"].items():
@@ -495,7 +525,10 @@ if __name__ == "__main__":
         return f"static const char {name}[] =\n" + "\n".join(chunks) + ";\n"
 
     table = []
+    previous = ""
     for key, param in sorted(by_key.items()):
+        assert key > previous, f"table not sorted at {key}"
+        previous = key
         if key not in {p["key"] for p in params}:
             continue
         low, high, offset, scale = ui_range(param)

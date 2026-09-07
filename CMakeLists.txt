@@ -62,7 +62,7 @@ add_executable(module_smoke tests/module_smoke.cpp)
 target_include_directories(module_smoke PRIVATE src)
 target_link_libraries(module_smoke PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
 add_executable(runtime_test tests/runtime_test.cpp)
-target_include_directories(runtime_test PRIVATE src)
+target_include_directories(runtime_test PRIVATE src ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(runtime_test PRIVATE Threads::Threads)
 target_compile_options(runtime_test PRIVATE -UNDEBUG)
 

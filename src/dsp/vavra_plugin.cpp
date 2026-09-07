@@ -548,6 +548,21 @@ static int parseEnum(const char* value,const char* const* options,int count) {
     return -1;
 }
 static const char* const g_modeOptions[]={"Single","Multi"};
+// The generated table is sorted by key, so this is a binary search.
+//
+// It was a linear strcmp over 278 entries, which a page repaint pays eight
+// times -- about 2200 string compares -- and get_param IS the SPI audio
+// callback. Nine compares now.
+static const vavra::MqParam* findParam(const char* key) {
+    size_t low=0, high=sizeof(vavra::g_mqParams)/sizeof(*vavra::g_mqParams);
+    while(low<high) {
+        const size_t mid=(low+high)/2;
+        const int order=strcmp(key,vavra::g_mqParams[mid].key);
+        if(!order) return &vavra::g_mqParams[mid];
+        if(order<0) high=mid; else low=mid+1;
+    }
+    return nullptr;
+}
 static void* create(const char* directory,const char*) {
     if(!directory || strlen(directory)>=1024) return nullptr;
     auto* inst=new(std::nothrow) Instance;
@@ -629,15 +644,12 @@ static void setParam(void* context,const char* key,const char* value) {
         inst->shm->part=slot;
         inst->shm->preset=inst->shm->partPreset[slot-1].load();
     }
-    // A generated synth parameter: look it up, map the shown value onto the
-    // wire, and queue it. Linear scan over ~280 entries -- a set_param is a
-    // knob detent, not a per-frame cost.
-    for(const auto& mq : vavra::g_mqParams) {
-        if(strcmp(key,mq.key)) continue;
-        const int shown=atoi(value);
-        int raw=shown*mq.scale+mq.offset;
-        raw=std::clamp(raw,static_cast<int>(mq.rawMin),static_cast<int>(mq.rawMax));
-        inst->shm->writes.push({mq.index,static_cast<uint8_t>(raw),2});
+    // A generated synth parameter: map the shown value onto the wire and queue
+    // it for the child, which owns the MIDI.
+    if(const auto* mq=findParam(key)) {
+        int raw=atoi(value)*mq->scale+mq->offset;
+        raw=std::clamp(raw,static_cast<int>(mq->rawMin),static_cast<int>(mq->rawMax));
+        inst->shm->writes.push({mq->index,static_cast<uint8_t>(raw),2});
         inst->shm->singleQueued.fetch_add(1);
         return;
     }
@@ -697,12 +709,11 @@ static int getParam(void* context,const char* key,char* buffer,int size) {
     if(!strcmp(key,"part_volume")) return snprintf(buffer,size,"%d",s->partVolume[std::clamp(s->part.load(),1,MultiParts)-1].load());
     // The LIVE name, off the device's own display -- so a ROM whose sounds
     // differ from the compiled-in table still reports the truth.
-    for(const auto& mq : vavra::g_mqParams) {
-        if(strcmp(key,mq.key)) continue;
+    if(const auto* mq=findParam(key)) {
         // Before the edit buffer has been read, a value would be a guess.
         if(!s->singleReady.load()) { buffer[0]=0; return 0; }
-        const int raw=mq.index<SingleDataBytes ? s->single[mq.index].load() : 0;
-        return snprintf(buffer,size,"%d",(raw-mq.offset)/(mq.scale?mq.scale:1));
+        const int raw=mq->index<SingleDataBytes ? s->single[mq->index].load() : 0;
+        return snprintf(buffer,size,"%d",(raw-mq->offset)/(mq->scale?mq->scale:1));
     }
     if(!strcmp(key,"multi_ready")) return snprintf(buffer,size,"%d",s->multiReady.load());
     // A parameter write is queued by the host thread and applied by the child;

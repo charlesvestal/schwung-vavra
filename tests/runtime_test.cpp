@@ -1,6 +1,8 @@
 #include "dsp/runtime.h"
+#include "dsp/vavra_ui.h"
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 #include <thread>
 
@@ -39,5 +41,26 @@ int main() {
         assert(next==i);
     }
     producer.join();
+    // The plugin BINARY SEARCHES the generated parameter table, so an entry
+    // out of order does not fail loudly -- it makes some keys unfindable, and
+    // those knobs quietly stop working.
+    {
+        const size_t count = sizeof(vavra::g_mqParams) / sizeof(*vavra::g_mqParams);
+        for (size_t i = 1; i < count; ++i)
+            assert(strcmp(vavra::g_mqParams[i - 1].key, vavra::g_mqParams[i].key) < 0 &&
+                   "vavra_ui.h parameter table must be sorted by key");
+        for (size_t i = 0; i < count; ++i) {
+            size_t low = 0, high = count;
+            bool found = false;
+            while (low < high) {
+                const size_t mid = (low + high) / 2;
+                const int order = strcmp(vavra::g_mqParams[i].key, vavra::g_mqParams[mid].key);
+                if (!order) { found = true; break; }
+                if (order < 0) high = mid; else low = mid + 1;
+            }
+            assert(found && "every parameter must be reachable by binary search");
+        }
+        printf("PASS: %zu parameters sorted and reachable by binary search\n", count);
+    }
     puts("PASS: ring wrap/full/empty, concurrent publication, and ROM normalization");
 }

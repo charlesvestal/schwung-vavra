@@ -96,7 +96,18 @@ Design rules it follows, each from `docs/PARAM_PAGES.md` or the fleet:
 - each LFO declares nine keys and shows eight -- Speed and Sync Speed are gated
   on Clocked; each FX unit shows only the selected effect's controls.
 
-Six assertions run at generation time, because none of these fail visibly on
+**A modulation slot is never cut in half.** A slot is three parameters and a page
+holds eight, so four slots in one level page as 8 + 4 -- which puts slot 3's
+Source and Dest at the end of one page and its Amount at the start of the next.
+Each matrix is two levels of two slots, six knobs, one page each.
+
+**The parameter lookup is a binary search**, not a scan. `get_param` IS the SPI
+audio callback, and a page repaint asks for eight values: 278 `strcmp`s each
+made ~2,200 string compares per repaint. `tests/runtime_test.cpp` pins the
+table's ordering, because an out-of-order entry does not fail loudly -- it
+makes a key unfindable and that knob quietly stops working.
+
+Seven assertions run at generation time, because none of these fail visibly on
 the device: a key that does not exist, a parameter on no page, a page listing
 an undeclared key, non-ASCII text, two cells drawing the same abbreviation, and
 a split envelope. They caught seven bad keys and twelve duplicate labels on
