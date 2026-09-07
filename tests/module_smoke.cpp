@@ -61,9 +61,11 @@ int main(int argc, char** argv) {
         printf("cancel_seconds=%.6f\n",seconds(start));
         return seconds(start)<0.5 ? 0 : 1;
     }
-    // The preset enum alone is ~7 KB of options; a 2 KB buffer would make the
-    // module report -1 here and read as a broken contract.
-    static char contract[65536];
+    // Sized from the host's own ceiling (SHADOW_PARAM_VALUE_LEN, now 128KB).
+    // At 64KB this silently became "FAIL: host chain_params contract" the
+    // moment the module outgrew it -- the harness reporting its own buffer as
+    // the module's defect.
+    static char contract[131072];
     if(api->get_param(inst,"is_loading",contract,sizeof(contract))<1 || strcmp(contract,"1")) {
         fprintf(stderr,"FAIL: host is_loading contract\n"); api->destroy_instance(inst); dlclose(lib); return 1;
     }

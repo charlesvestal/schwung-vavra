@@ -113,9 +113,9 @@ def short_for(key):
 # device. Each LFO declares nine keys and shows eight -- Speed and Sync Speed
 # are gated on Clocked, so exactly one of them is ever on the page.
 
-def L(level_id, label, keys, knobs=None, extra=None, hidden=None, relabel=None):
+def L(level_id, label, keys, knobs=None, extra=None, hidden=None, relabel=None, child=None):
     return dict(id=level_id, label=label, keys=keys, knobs=knobs, extra=extra or [],
-                hidden=hidden or {}, relabel=relabel or {})
+                hidden=hidden or {}, relabel=relabel or {}, child=child)
 
 def osc(n, sub=True):
     keys = [f"osc{n}_shape", f"osc{n}_octave", f"osc{n}_semi", f"osc{n}_detune",
@@ -187,12 +187,20 @@ LEVELS = [
     env("fenv", "Filter Env"), env("aenv", "Amp Env"),
     env("env3", "Env 3"), env("env4", "Env 4"),
     lfo(1), lfo(2), lfo(3),
-    # The microQ has eight slots in each matrix. Four of each are exposed:
-    # every slot repeats its source and destination option lists verbatim, and
-    # sixteen slots cost 18 KB of a 64 KB contract ceiling that the host
-    # REJECTS the whole module for exceeding. See docs/CONTRACT_SIZE.md.
-    *mods("fmod", "Fast Mod", 4),
-    *mods("smod", "Mod Slot", 4),
+    # All eight slots of each matrix. They cost ~18 KB between them, because
+    # every slot repeats its own source and destination option lists verbatim;
+    # that did not fit under the old 64 KB contract ceiling and does under the
+    # 128 KB one (schwung #444). See docs/CONTRACT_SIZE.md.
+    *mods("fmod", "Fast Mod", 8),
+    *mods("smod", "Mod Slot", 8),
+    # The four envelope trigger modes on one page rather than a ninth cell on
+    # each envelope, which would have made four pages holding one knob each.
+    L("envtrig", "Env Trigger",
+      ["fenv_trigger_mode", "aenv_trigger_mode", "env3_trigger_mode", "env4_trigger_mode"],
+      relabel={"fenv_trigger_mode": ("Filter Env", "FILT"),
+               "aenv_trigger_mode": ("Amp Env", "AMP"),
+               "env3_trigger_mode": ("Env 3", "ENV3"),
+               "env4_trigger_mode": ("Env 4", "ENV4")}),
     L("modif", "Modifiers",
       [f"modif{n}_{field}" for n in range(1, 5)
        for field in ("source1", "source2", "operator", "constant")]),
@@ -201,6 +209,15 @@ LEVELS = [
        "arp_direction", "arp_sort_order", "arp_velo_mode", "arp_max_notes",
        "arp_t_factor", "arp_same_note_overlap", "arp_pattern_reset",
        "arp_pattern_length", "tempo"]),
+    # The arpeggiator's user pattern is 16 steps x 5 attributes. As five flat
+    # levels that is ten pages; as a child level it is one Step picker and one
+    # grid. The level lists TEMPLATE keys and the host resolves them through
+    # child_key_template, so each template carries its metadata inline -- a
+    # listed key with no metadata gets a guessed float 0..1 knob.
+    L("arpsteps", "Arp Pattern",
+      ["step", "glide", "accent", "length", "timing"],
+      child=dict(count=16, label="Step", template="arp_{index}_{key}", base=0, digits=2,
+                 sample="arp_00_{key}")),
     L("voice", "Voice",
       ["voice_mode", "unison_count", "unison_detune", "sync",
        "glide_mode", "glide_rate", "pitchmod_src", "pitchmod_amount"],
@@ -250,6 +267,10 @@ def build():
         return keys
 
     for level in LEVELS:
+        if level["child"]:
+            # The keys are templates; check the instance they are sampled from.
+            K([level["child"]["sample"].format(key=k) for k in level["keys"]])
+            continue
         K(level["keys"])
         K(list(level["hidden"]))
     if problems:
@@ -326,6 +347,20 @@ def slot_label(key):
     return None, None
 
 
+# Graphics the detectors would otherwise infer. Declaring them makes the
+# picture intent rather than a guess, and pins it if a detector changes.
+# Both groups sit inside one row of four by construction -- an envelope's
+# A/D/S/R are cells 1-4 of their level, cutoff and resonance are adjacent --
+# and a group split across the row break is not drawn at all.
+VIZ = {}
+for _prefix in ("fenv", "aenv", "env3", "env4"):
+    for _role in ("attack", "decay", "sustain", "release"):
+        VIZ[f"{_prefix}_{_role}"] = {"group": _prefix, "role": _role}
+for _n in (1, 2):
+    VIZ[f"flt{_n}_cutoff"] = {"group": f"flt{_n}", "role": "cutoff"}
+    VIZ[f"flt{_n}_resonance"] = {"group": f"flt{_n}", "role": "resonance"}
+
+
 def param_entry(key, param, valuelists, level_id=None):
     entry = {"key": key, "name": label_for(param["name"], key, level_id or "")}
     short = short_for(key)
@@ -334,6 +369,8 @@ def param_entry(key, param, valuelists, level_id=None):
         entry["name"], short = slot_name, slot_short
     if short:
         entry["short_name"] = short
+    if key in VIZ:
+        entry["viz"] = VIZ[key]
     options = None
     if param.get("isDiscrete") and param.get("toText") in valuelists:
         options = [str(o) for o in valuelists[param["toText"]]]
@@ -368,7 +405,39 @@ def build_contract():
 
     hierarchy_levels = {}
     root_links = []
+    child_templates = []
     for level in levels:
+        if level["child"]:
+            child = level["child"]
+            entries, knob_keys = [], []
+            for template_key in level["keys"]:
+                sample = child["sample"].format(key=template_key)
+                param = by_key[sample]
+                meta = param_entry(sample, param, valuelists, level["id"])
+                # Every instance is declared, so nothing is addressable only by
+                # a template the host might resolve differently than we expect.
+                for index in range(child["count"]):
+                    concrete = child["template"].format(
+                        index=str(index + child["base"]).zfill(child["digits"]), key=template_key)
+                    if concrete not in seen:
+                        instance = dict(meta); instance["key"] = concrete
+                        params.append(instance); seen.add(concrete)
+                # The listed key is the TEMPLATE, and it carries its metadata
+                # inline because it is not itself a chain_params entry.
+                item = {k: v for k, v in meta.items() if k != "key"}
+                item["key"] = template_key
+                item["label"] = item.pop("name")
+                entries.append(item); knob_keys.append(template_key)
+            hierarchy_levels[level["id"]] = {
+                "label": level["label"], "children": None,
+                "child_count": child["count"], "child_label": child["label"],
+                "child_key_template": child["template"],
+                "child_index_base": child["base"], "child_index_digits": child["digits"],
+                "knobs": knob_keys, "params": entries,
+            }
+            root_links.append({"level": level["id"], "label": level["label"]})
+            child_templates.append((child, level["keys"]))
+            continue
         knob_keys = level["knobs"] if level["knobs"] is not None else level["keys"][:8]
         entries = []
         for key in level["keys"]:
@@ -429,12 +498,22 @@ def check(params, hierarchy, by_key, levels):
     for level in hierarchy["levels"].values():
         placed.update(level["knobs"])
         placed.update(item["key"] for item in level["params"] if "key" in item)
+    for level in hierarchy["levels"].values():
+        template = level.get("child_key_template")
+        if not template:
+            continue
+        for index in range(level["child_count"]):
+            stamp = str(index + level["child_index_base"]).zfill(level["child_index_digits"])
+            for item in level["params"]:
+                placed.add(template.format(index=stamp, key=item["key"]))
     for key in declared - placed:
         problems.append(f"unreachable: {key} is declared but on no page")
 
     # 2. Every key a page lists must be declared, or the grid invents a
     #    float 0..1 knob and writes 0.058750 into it.
     for name, level in hierarchy["levels"].items():
+        if level.get("child_key_template"):
+            continue   # lists templates, each carrying its metadata inline
         for key in set(level["knobs"]) | {i["key"] for i in level["params"] if "key" in i}:
             if key not in declared:
                 problems.append(f"undeclared: {name} lists {key}")

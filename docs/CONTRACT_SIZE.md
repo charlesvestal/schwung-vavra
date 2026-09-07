@@ -8,29 +8,32 @@ truncated -- the chain host **rejects the module** with "UI buffer overflow"
 
 ## Where this module sits
 
+The ceiling is **131072** since schwung #444; it was 65536.
+
 | string | bytes | share of the ceiling |
 |---|---|---|
-| `chain_params` (286 params, incl. 300 preset options) | 51,904 | 79% |
-| `ui_hierarchy` (23 levels) | 22,543 | 34% |
+| `chain_params` (394 params, incl. 300 preset options) | 70,708 | 54% |
+| `ui_hierarchy` (31 levels) | 26,394 | 20% |
 
-## What had to be left out to fit
+At 70,708 bytes this module is **108% of the old ceiling** -- it would now be
+rejected outright by a host that has not been upgraded.
 
-The microQ publishes **449** single-sound parameters. This module exposes 286.
-The omissions are not editorial:
+## What is left out
 
-- **Four of eight slots in each modulation matrix.** Every slot repeats its own
-  source and destination option lists verbatim -- a Standard slot costs 494
-  bytes, of which 440 is the 58-entry destination list -- so sixteen slots cost
-  about 18 KB. Four of each fit; eight of each do not.
-- **The 5.1 / surround delay parameters** (15 of them), which are meaningless
-  on a stereo device. This one is a real editorial choice.
-- **Arpeggiator user patterns** (80 parameters: 16 steps x step, glide, accent,
-  length, timing).
-- **Each envelope's trigger mode** (4), and the vocoder's 28.
+The microQ publishes **449** single-sound parameters; this module exposes 386.
+What remains out is now editorial rather than forced:
 
-## The proposal
+- **The 5.1 / surround delay parameters** (15), meaningless on a stereo device.
+- **The Five FX composite** (8 per unit), and a handful of unreachable oddments.
 
-Raise `SHADOW_PARAM_VALUE_LEN` from 65536 to 131072 -- but **not on its own**.
+Everything the old ceiling forced out is back: all eight slots of both
+modulation matrices, the arpeggiator's 80 user-pattern parameters (as one
+instance picker plus one grid, via `child_key_template`), and the four envelope
+trigger modes.
+
+## How the raise was done (schwung #444, merged)
+
+`SHADOW_PARAM_VALUE_LEN` 65536 -> 131072, and it could **not** go on its own.
 
 `shadow_param_t.value` lives in the `/schwung-param` SHM segment, so the
 segment grows by 64 KB. That part is cheap and well-trodden: /dev/shm is tmpfs
@@ -46,5 +49,9 @@ so that array is **~1.05 MB of stack**, and the function is called every
 `MOD_PARAM_CACHE_REFRESH_MS` (250 ms). Doubling the constant adds another 64 KB
 to that frame.
 
-So the order is: make those two locals `static` (or heap), *then* raise the
-constant. The first change is worth making regardless of this module.
+Both locals are `static` now, and `tests/host/test_param_buffers_not_on_stack.sh`
+fails if either returns to the stack. `static` rather than heap because every
+caller arrives on the callback thread, where `malloc` is a realtime violation.
+
+**Sequencing.** A module larger than 64 KB is rejected by a host that has not
+been upgraded, so this module requires schwung >= #444 on the device.
