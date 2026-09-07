@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Init the submodules the plugin needs
+        run: |
+          git submodule update --init libs/gearmulator
+          git -C libs/gearmulator submodule update --init source/cpu/dsp56300 source/cpu/mc68k
+          git -C libs/gearmulator/source/cpu/dsp56300 submodule update --init source/asmjit
+
+      - name: The generated UI must match the tree it is generated from
+        run: |
+          # vavra_ui.h, the preset table and module.json's enum options are all
+          # generated. A stale copy ships the wrong names on presets that still
+          # load, which is invisible at runtime.
+          python3 tools/gen_ui.py
+          python3 tools/gen_presets_header.py
+          git diff --exit-code -- src/dsp/vavra_ui.h src/dsp/presets_os223.h src/module.json
+          bash tests/test_presets_generated.sh
+
+      - name: Build
+        run: ./scripts/build.sh
+
+      - name: Check the artifact
+        run: |
+          test -f dist/vavra-module.tar.gz
+          file dist/vavra/dsp.so | tee /dev/stderr | grep -q 'ARM aarch64'
+          # A top-level vavra/ or the Module Store extracts into the wrong place.
+          tar tzf dist/vavra-module.tar.gz | head -1 | grep -q '^vavra/'
+          # The microQ ROM is the user's to supply and must never ship.
+          ! tar tzf dist/vavra-module.tar.gz | grep -qE 'roms/.+\.(mid|bin|BIN)$'
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/vavra-module.tar.gz \
+            --title "${GITHUB_REF_NAME}" --generate-notes || \
+          gh release upload "${GITHUB_REF_NAME}" dist/vavra-module.tar.gz --clobber
+
+      # release.json is what the Module Store and Schwung Manager read to
+      # decide a version is available. Without this step a tagged release is
+      # invisible to them.
+      - name: Point release.json at this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/vavra-module.tar.gz"
+          printf '{\n  "version": "%s",\n  "download_url": "%s"\n}\n' "$VER" "$URL" > release.json
+          if ! git diff --quiet release.json; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add release.json
+            git commit -m "release.json -> ${GITHUB_REF_NAME}"
+            git push origin HEAD:main
+          fi

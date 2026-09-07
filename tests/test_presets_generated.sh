@@ -36,25 +36,47 @@ if options != rows:
     failures.append(f"src/module.json preset options are stale ({options and len(options)} names); "
                     "re-run tools/gen_presets_header.py")
 
-# The plugin serves its own chain_params and the chain host parses module.json's
-# copy; only the module.json half is visible without a device, so pin the KEY
-# LIST of the two against each other from source. A key in one and not the
-# other is the invented-knob failure again, one level up from the names.
-source = (root / "src/dsp/vavra_plugin.cpp").read_text()
-contract = source[source.index('if(!strcmp(key,"chain_params"))'):source.index('if(!strcmp(key,"ui_hierarchy"))')]
-# Only top-level params: every one is {"key":...,"name":...}, while a
-# visible_if carries its own inner "key" and would double-count.
-in_plugin = re.findall(r'\{"key":"([a-z_]+)","name"', contract)
-in_module = [p["key"] for p in module["chain_params"]]
-if in_plugin != in_module:
-    failures.append(f"chain_params keys differ: plugin {in_plugin} vs module.json {in_module}")
+# Both contract strings now live in the GENERATED header, so the drift that
+# matters is between that header and the generator -- a stale vavra_ui.h ships
+# a UI that no longer matches module.json or the tables it came from. Compare
+# by content: regenerate into memory and check the checked-in header carries
+# exactly that.
+import sys
+sys.path.insert(0, "tools")
+import gen_ui
 
-hierarchy = source[source.index('if(!strcmp(key,"ui_hierarchy"))'):]
-hierarchy = hierarchy[:hierarchy.index("\n")]
-in_hierarchy = re.findall(r'"([a-z_]+)"', hierarchy[hierarchy.index('"knobs"'):])
-in_hierarchy = [k for k in in_hierarchy if k not in ("knobs", "params")]
-if sorted(set(in_hierarchy)) != sorted(set(in_plugin)):
-    failures.append(f"ui_hierarchy names {sorted(set(in_hierarchy))} do not match chain_params {sorted(set(in_plugin))}")
+params, hierarchy, _, _ = gen_ui.build_contract()
+header = (root / "src/dsp/vavra_ui.h").read_text()
+
+
+def embedded(name):
+    """Reassemble a C string literal the generator emitted."""
+    body = header.split(f"static const char {name}[] =", 1)[1].split(";", 1)[0]
+    chunks = re.findall(r'"((?:[^"\\]|\\.)*)"', body)
+    return "".join(chunks).replace('\\"', '"').replace("\\\\", "\\")
+
+
+want_params = json.dumps(params, separators=(",", ":"))[1:-1]
+want_hierarchy = json.dumps(hierarchy, separators=(",", ":"))
+if embedded("g_chainParamsRest") != want_params:
+    failures.append("src/dsp/vavra_ui.h chain_params is stale; re-run tools/gen_ui.py")
+if embedded("g_uiHierarchy") != want_hierarchy:
+    failures.append("src/dsp/vavra_ui.h ui_hierarchy is stale; re-run tools/gen_ui.py")
+
+# module.json carries the WRAPPER params only, and deliberately not the 386
+# synth ones: the chain host reads the plugin's own chain_params (it only falls
+# back to module.json when the plugin does not answer), and a module.json over
+# 65536 bytes parses to NOTHING AT ALL -- chain_params.c refuses the file, so
+# every param would be lost, not just the extra ones. Subset, then, plus the
+# size limit that makes it a subset.
+in_header = {p["key"] for p in json.loads("[" + embedded("g_chainParamsRest") + "]")}
+in_module = {p["key"] for p in module["chain_params"]}
+orphans = in_module - in_header
+if orphans:
+    failures.append(f"module.json declares params the plugin does not serve: {sorted(orphans)}")
+module_bytes = (root / "src/module.json").stat().st_size
+if module_bytes > 65536:
+    failures.append(f"src/module.json is {module_bytes} bytes; over 65536 it parses to nothing")
 
 if failures:
     for f in failures:

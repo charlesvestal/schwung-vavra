@@ -2,7 +2,7 @@
     "id": "vavra",
     "name": "Vavra",
     "abbrev": "MQ",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "description": "Waldorf microQ emulator (Gearmulator)",
     "author": "dsp56300/gearmulator (port: charlesvestal)",
     "dsp": "dsp.so",
