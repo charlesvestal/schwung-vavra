@@ -160,9 +160,11 @@ def short_for(key):
 # device. Each LFO declares nine keys and shows eight -- Speed and Sync Speed
 # are gated on Clocked, so exactly one of them is ever on the page.
 
-def L(level_id, label, keys, knobs=None, extra=None, hidden=None, relabel=None, child=None):
+def L(level_id, label, keys, knobs=None, extra=None, hidden=None, relabel=None, child=None,
+      visible_if=None, hidden_from_root=False):
     return dict(id=level_id, label=label, keys=keys, knobs=knobs, extra=extra or [],
-                hidden=hidden or {}, relabel=relabel or {}, child=child)
+                hidden=hidden or {}, relabel=relabel or {}, child=child,
+                visible_if=visible_if, hidden_from_root=hidden_from_root)
 
 def osc(n, sub=True):
     keys = [f"osc{n}_shape", f"osc{n}_octave", f"osc{n}_semi", f"osc{n}_detune",
@@ -350,19 +352,35 @@ FX_GROUPS = {"chorus": "Chorus", "flanger": "Flanger", "phaser": "Phaser",
              "overdrive": "Overdrive", "delay": "Delay", "reverb": "Reverb",
              "vocoder": "Vocoder"}
 
-def fx_level(unit, by_key):
+def fx_levels(unit, by_key):
+    """One level per effect, gated at the LEVEL rather than per parameter.
+
+    Every parameter used to carry its own visible_if -- 38 of them on FX 1, 44
+    on FX 2. A re-plan follows every detent of a gating knob and evaluates each
+    condition, and a condition the value cache misses is a blocking IPC read of
+    about 2.8 ms: turning the type knob froze the screen. Gating the level asks
+    seven questions instead of thirty-eight, and a hidden level is skipped
+    whole -- its page never enters the rotation.
+    """
     types = FX_TYPES[unit]
-    keys = [f"{unit}_type", f"{unit}_mix"]
-    hidden = {}
+    n = unit[-1]
+    levels, links = [], []
     for group, label in FX_GROUPS.items():
         if label not in types:
             continue
         members = sorted(k for k in by_key
                          if k.startswith(f"{unit}_{group}_") or k == f"{unit}_{group}")
-        for key in members:
-            hidden[key] = (f"{unit}_type", types.index(label))
-        keys += members
-    return L(unit, f"FX {unit[-1]}", keys, knobs=keys, hidden=hidden)
+        if not members:
+            continue
+        level_id = f"{unit}_{group}"
+        levels.append(L(level_id, f"FX {n} {label}", members, knobs=members[:8],
+                        visible_if={"key": f"{unit}_type", "equals": types.index(label)},
+                        hidden_from_root=True))
+        links.append({"level": level_id, "label": label,
+                      "visible_if": {"key": f"{unit}_type", "equals": types.index(label)}})
+    unit_level = L(unit, f"FX {n}", [f"{unit}_type", f"{unit}_mix"],
+                   knobs=[f"{unit}_type", f"{unit}_mix"], extra=links)
+    return [unit_level] + levels
 
 
 def ui_range(param):
@@ -489,7 +507,7 @@ def param_entry(key, param, valuelists, level_id=None):
 
 def build_contract():
     by_key, valuelists = build()
-    levels = list(LEVELS) + [fx_level("fx1", by_key), fx_level("fx2", by_key)]
+    levels = list(LEVELS) + fx_levels("fx1", by_key) + fx_levels("fx2", by_key)
 
     params, seen = [], set()
     for wrapper in WRAPPER:
@@ -555,9 +573,12 @@ def build_contract():
             entries.append(item)
         hierarchy_levels[level["id"]] = {
             "label": level["label"], "children": None,
-            "knobs": knob_keys, "params": entries,
+            "knobs": knob_keys, "params": entries + level["extra"],
         }
-        root_links.append({"level": level["id"], "label": level["label"]})
+        if level["visible_if"]:
+            hierarchy_levels[level["id"]]["visible_if"] = level["visible_if"]
+        if not level["hidden_from_root"]:
+            root_links.append({"level": level["id"], "label": level["label"]})
 
     # Three entry levels, one per mode. Play is the default and is four pages:
     # the preset browser, the macros, the two effects and the arpeggiator.
