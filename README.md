@@ -329,9 +329,15 @@ submodule pinned to the commit these measurements were taken with.
 1. Play it through the Schwung chain on hardware. Everything above was measured
    by a standalone harness against the same `dsp.so` the host loads; the module
    has never been driven by the chain host itself.
-2. State save/restore, so a slot remembers its patch. `mqLib::Device`
-   implements `getState`/`setState`; nothing is wired up, so a reload returns
-   to A1. Osirus (`schwung-virus/src/dsp/virus_plugin.cpp`) is the model.
+2. ~~State save/restore~~ -- wired up, **unverified on hardware**. `get_param("state")`
+   returns one JSON object (module settings plus hex dumps of the Single edit
+   buffer and the Multi, ~1.7 KB) and `set_param("state", json)` queues it for
+   the child, which applies it after boot: mode first, then the Multi through
+   the usual 300 ms debounce, then the Single edit buffer. Limits: in Multi mode
+   the per-part PARAMETER edits are not captured (each part's sound comes back
+   from the Multi's bank/number, i.e. as a factory patch); and the key name
+   `state` is the Osirus convention -- confirm it against the host.
+
 3. Editable patch parameters and a Remote UI. Today the module publishes
    preset, mode, part, part channel, part volume, gain, DSP clock and buffer.
    The front panel arrives over sysex already (`EmuLCD`, `EmuLEDs`,

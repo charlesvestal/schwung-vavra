@@ -5,8 +5,8 @@ Waldorf microQ for Schwung/Move, on gearmulator's `mqLib`.
 **Status: playable and multitimbral, measured on Move.** It builds, boots the
 firmware in a forked child, plays, selects any of the 300 factory sounds by
 name, and runs the 16-part Multi. Every cell at the default 50% DSP clock
-measured zero underruns, including eight voices across two parts. No state
-save/restore and no patch parameters yet.
+measured zero underruns, including eight voices across two parts. State save/restore
+is wired (unverified on hardware); no patch parameters yet.
 
 ## Verify audio with tests/audio_battery.sh, and mind how it lies
 

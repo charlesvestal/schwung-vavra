@@ -89,6 +89,10 @@ constexpr int PartSoundBankOffset=0, PartSoundNumberOffset=1,
 constexpr int PartChannelOffset=2;
 // How long the queue runs deep after a preset change, to swallow its JIT.
 constexpr int BoostSeconds=4;
+// A saved state is ~1.7 KB of JSON (two hex dumps plus a few integers).
+constexpr int StateJsonMax=4096;
+static_assert(static_cast<int>(mqLib::IdxSingleParamFirst)==7,
+    "the Single dump header is 7 bytes; the restore builds it that way");
 static_assert(sizeof(vavra::g_presetNames)/sizeof(*vavra::g_presetNames)==BankCount*PresetsPerBank,
     "the generated name table must cover every Program Change slot");
 using Clock=std::chrono::steady_clock;
@@ -126,6 +130,19 @@ struct Shared {
     // asking the emulator for each would be eight sysex round trips per frame.
     std::atomic<uint8_t> single[SingleDataBytes]{};
     std::atomic<int> singleReady{0};
+    // The Multi the child keeps, mirrored so get_param("state") can save it.
+    std::atomic<uint8_t> multiShadow[MultiDataBytes]{};
+    // State handed to set_param("state"), waiting for the child to apply it
+    // once the firmware is up. restoreJson is also what get_param("state")
+    // answers while the device is still booting -- a save in that window must
+    // hand back what was loaded, not a freshly booted A1.
+    std::atomic<uint8_t> restoreSingle[SingleDataBytes]{}, restoreMulti[MultiDataBytes]{};
+    std::atomic<int> restoreHasSingle{0}, restoreHasMulti{0}, restorePending{0};
+    char restoreJson[StateJsonMax]{};
+    std::atomic<int> restoreJsonValid{0};
+    // The child's resident set, in KiB. The emulator lives in the child, so
+    // this -- not the host's own RSS -- is where any growth would show.
+    std::atomic<uint32_t> rssKb{0};
     std::atomic<uint32_t> singleWrites{0}, singleQueued{0}, lastSingleIndex{9999}, lastSingleValue{0};
     std::atomic<uint32_t> underruns{0}, midiDrops{0}, blocks{0}, bootMs{0}, cpuMs{0};
     std::atomic<uint32_t> warmupBlocks{0};
@@ -320,6 +337,11 @@ static void childMain(Instance* inst) {
             }
             shm->multiReady=multiData.size()==MultiDataBytes ? 1 : 0;
         }
+        auto mirrorMulti=[&]{
+            if(multiData.size()!=MultiDataBytes) return;
+            for(int i=0;i<MultiDataBytes;++i) shm->multiShadow[i]=multiData[i];
+        };
+        mirrorMulti();
         refreshSingle();
         shm->bootMs=std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-start).count();
         auto boostUntil=Clock::now();
@@ -392,7 +414,54 @@ static void childMain(Instance* inst) {
             // the Single/Multi mode change left every part edit with no
             // effect; the working sequence puts a gap between them. It also
             // coalesces a run of knob edits into one dump.
-            if(multiDirty) multiSendAt=Clock::now()+std::chrono::milliseconds(MultiSendDelayMs);
+            if(multiDirty) { multiSendAt=Clock::now()+std::chrono::milliseconds(MultiSendDelayMs); mirrorMulti(); }
+            // A state handed in by set_param("state"). It lands here, after the
+            // writes above, so the mode change it carries (queued by set_param
+            // as an ordinary Global write) has already gone out in this or an
+            // earlier block; the Multi then follows through the same debounce
+            // as any part edit, which is the sequence measured to work.
+            if(shm->restorePending.exchange(0,std::memory_order_acquire)) {
+                if(shm->restoreHasMulti.load()) {
+                    std::vector<uint8_t> restored(MultiDataBytes);
+                    for(int i=0;i<MultiDataBytes;++i) restored[i]=shm->restoreMulti[i];
+                    if(restored!=multiData) {
+                        multiData=std::move(restored);
+                        mirrorMulti();
+                        multiPending=true;
+                        multiSendAt=Clock::now()+std::chrono::milliseconds(MultiSendDelayMs);
+                        boostUntil=Clock::now()+std::chrono::seconds(BoostSeconds);
+                    }
+                }
+                // The Single edit buffer is only restored in Single mode: in
+                // Multi each part's sound comes from the Multi above.
+                bool appliedSingle=false;
+                if(shm->restoreHasSingle.load() && !shm->multiMode.load()) {
+                    appliedSingle=true;
+                    std::vector<uint8_t> sysex={0xf0,0x3e,static_cast<uint8_t>(mqLib::IdMicroQ),0x7f,
+                        static_cast<uint8_t>(mqLib::SysexCommand::SingleDump),
+                        static_cast<uint8_t>(mqLib::MidiBufferNum::SingleEditBufferSingleMode),
+                        static_cast<uint8_t>(mqLib::MidiSoundLocation::EditBufferCurrentSingle)};
+                    for(int i=0;i<SingleDataBytes;++i) {
+                        const uint8_t value=shm->restoreSingle[i].load();
+                        sysex.push_back(value); shm->single[i]=value;
+                    }
+                    uint8_t checksum=0;
+                    for(size_t i=4;i<sysex.size();++i) checksum+=sysex[i];
+                    sysex.push_back(checksum&0x7f);
+                    sysex.push_back(0xf7);
+                    synthLib::SMidiEvent event(synthLib::MidiEventSource::Host);
+                    event.sysex.assign(sysex.begin(),sysex.end());
+                    midiIn.push_back(std::move(event));
+                    shm->singleReady=1;
+                    boostUntil=Clock::now()+std::chrono::seconds(BoostSeconds);
+                }
+                // `presetPending` starts at 1, so the first pass of this loop
+                // would send Program Change for the saved index right AFTER the
+                // dump above and overwrite the edits it just restored. The dump
+                // already is the sound; there is nothing left for it to select.
+                if(appliedSingle || shm->multiMode.load()) shm->presetPending.store(0);
+                shm->restoreJsonValid.store(0);
+            }
             if(multiPending && Clock::now()>=multiSendAt && multiData.size()==MultiDataBytes) {
                 synthLib::SMidiEvent event(synthLib::MidiEventSource::Host);
                 std::vector<uint8_t> sysex={0xf0,0x3e,static_cast<uint8_t>(mqLib::IdMicroQ),0x7f,
@@ -493,7 +562,15 @@ static void childMain(Instance* inst) {
                 shm->audio.push(sample);
             }
             auto block=shm->blocks.fetch_add(1)+1;
-            if((block&255)==0) shm->cpuMs=cpuMs()-cpuStart;
+            if((block&255)==0) {
+                shm->cpuMs=cpuMs()-cpuStart;
+                if(FILE* statm=fopen("/proc/self/statm","r")) {
+                    unsigned long size=0,resident=0;
+                    if(fscanf(statm,"%lu %lu",&size,&resident)==2)
+                        shm->rssKb=static_cast<uint32_t>(resident*static_cast<unsigned long>(sysconf(_SC_PAGESIZE))/1024);
+                    fclose(statm);
+                }
+            }
             if(shm->audio.available()>=targetFill) shm->ready.store(1,std::memory_order_release);
         }
     } catch(const std::exception& error) {
@@ -573,6 +650,82 @@ static const vavra::MqParam* findParam(const char* key) {
     }
     return nullptr;
 }
+// Decode a saved state and queue it for the child. The module's own settings
+// are applied here, on the host thread, exactly as set_param would apply them;
+// only the two firmware dumps need the child, which owns the MIDI.
+static void restoreState(Instance* inst,const char* json) {
+    auto* s=inst->shm;
+    if(strlen(json)>=StateJsonMax || vavra::jsonInt(json,"v",0)!=1) return;
+    uint8_t multi[MultiDataBytes], single[SingleDataBytes];
+    const bool hasMulti=vavra::jsonHex(json,"multi",multi,MultiDataBytes);
+    const bool hasSingle=vavra::jsonHex(json,"single",single,SingleDataBytes);
+    // Keep the raw blob so a save made while the device is still booting hands
+    // back what was loaded rather than a freshly booted A1.
+    s->restoreJsonValid.store(0);
+    snprintf(s->restoreJson,sizeof(s->restoreJson),"%s",json);
+    s->restoreJsonValid.store(1);
+    if(hasMulti) {
+        for(int i=0;i<MultiDataBytes;++i) s->restoreMulti[i]=multi[i];
+        // The part list the UI shows is derived from the same bytes.
+        for(int slot=0;slot<MultiParts;++slot) {
+            const int base=static_cast<int>(mqLib::MultiParameter::Inst0)+slot*MultiInstStride;
+            const int bank=multi[base+PartSoundBankOffset], number=multi[base+PartSoundNumberOffset];
+            s->partPreset[slot]=std::clamp(bank*PresetsPerBank+number,0,BankCount*PresetsPerBank-1);
+            const int rawChannel=multi[base+PartChannelOffset_];
+            s->partChannel[slot]=rawChannel>=PartChannelOffset ? rawChannel-PartChannelOffset+1 : 0;
+            s->partVolume[slot]=multi[base+PartVolumeOffset];
+        }
+    }
+    if(hasSingle) for(int i=0;i<SingleDataBytes;++i) s->restoreSingle[i]=single[i];
+    s->restoreHasMulti.store(hasMulti ? 1 : 0);
+    s->restoreHasSingle.store(hasSingle ? 1 : 0);
+    char number[16];
+    auto apply=[&](const char* key,const char* name) {
+        const int value=vavra::jsonInt(json,key,-1);
+        if(value<0) return;
+        snprintf(number,sizeof(number),"%d",value); setParam(inst,name,number);
+    };
+    apply("gain","gain"); apply("dsp_clock","dsp_clock"); apply("buffer_ms","buffer_ms");
+    apply("part","part");
+    apply("mode","mode");
+    // Last, and written directly: setParam("preset") would raise a Program
+    // Change, which replaces the edit buffer the dump is about to restore.
+    const int preset=vavra::jsonInt(json,"preset",-1);
+    if(preset>=0) s->preset=std::clamp(preset,0,BankCount*PresetsPerBank-1);
+    s->restorePending.store(1,std::memory_order_release);
+}
+static void writeHex(char* out,const std::atomic<uint8_t>* bytes,int count) {
+    static const char digits[]="0123456789abcdef";
+    for(int i=0;i<count;++i) {
+        const uint8_t value=bytes[i].load();
+        out[i*2]=digits[value>>4]; out[i*2+1]=digits[value&15];
+    }
+}
+// The state, built without allocating: get_param runs on the host's callback
+// thread. Two hex dumps (the Single edit buffer and the Multi) plus the
+// module's own settings, ~1.7 KB.
+static int getState(Shared* s,char* buffer,int size) {
+    if(s->restoreJsonValid.load()) {
+        const int used=snprintf(buffer,size,"%s",s->restoreJson);
+        return used<size ? used : -1;
+    }
+    // Before the firmware is up there is nothing true to save.
+    if(!s->ready.load() || !s->singleReady.load()) { buffer[0]=0; return 0; }
+    const bool withMulti=s->multiReady.load()!=0;
+    const int need=170+SingleDataBytes*2+(withMulti ? 12+MultiDataBytes*2 : 0);
+    if(size<need) { buffer[0]=0; return -1; }
+    int used=snprintf(buffer,size,
+        "{\"v\":1,\"preset\":%d,\"mode\":%d,\"part\":%d,\"gain\":%d,\"dsp_clock\":%d,\"buffer_ms\":%d,\"single\":\"",
+        s->preset.load(),s->uiMode.load(),s->part.load(),s->gain.load(),s->clock.load(),
+        s->targetFill.load()*1000/44100);
+    writeHex(buffer+used,s->single,SingleDataBytes); used+=SingleDataBytes*2;
+    if(withMulti) {
+        used+=snprintf(buffer+used,size-used,"\",\"multi\":\"");
+        writeHex(buffer+used,s->multiShadow,MultiDataBytes); used+=MultiDataBytes*2;
+    }
+    used+=snprintf(buffer+used,size-used,"\"}");
+    return used;
+}
 static void* create(const char* directory,const char*) {
     if(!directory || strlen(directory)>=1024) return nullptr;
     auto* inst=new(std::nothrow) Instance;
@@ -611,6 +764,7 @@ static void onMidi(void* context,const uint8_t* bytes,int size,int) {
 }
 static void setParam(void* context,const char* key,const char* value) {
     auto* inst=static_cast<Instance*>(context); if(!inst || !key || !value) return;
+    if(!strcmp(key,"state")) { restoreState(inst,value); return; }
     if(!strcmp(key,"dsp_clock")) inst->shm->clock=std::clamp(atoi(value),25,100);
     if(!strcmp(key,"gain")) inst->shm->gain=std::clamp(atoi(value),0,GainMax);
     // Buffer in milliseconds: what the user actually trades away is latency.
@@ -695,6 +849,7 @@ static int getParam(void* context,const char* key,char* buffer,int size) {
     auto* inst=static_cast<Instance*>(context); if(!inst || !key || !buffer || size<=0) return -1;
     auto* s=inst->shm;
     if(!strcmp(key,"name")) return snprintf(buffer,size,"microQ");
+    if(!strcmp(key,"state")) return getState(s,buffer,size);
     if(!strcmp(key,"loading") || !strcmp(key,"is_loading")) return snprintf(buffer,size,"%d",!s->ready.load() && !s->failed.load() && !inst->workerError.load());
     if(!strcmp(key,"chain_params")) {
         // The host's ceiling (SHADOW_PARAM_VALUE_LEN) REJECTS the whole module
@@ -765,7 +920,7 @@ static int getParam(void* context,const char* key,char* buffer,int size) {
             used+=snprintf(buffer+used,size-used," %u@%u",s->stallUs[i].load(),s->stallBlock[i].load());
         return used;
     }
-    if(!strcmp(key,"diagnostics")) return snprintf(buffer,size,"boot_ms=%u cpu_ms=%u blocks=%u underruns=%u midi_drops=%u warmup_blocks=%u warmup_peak=%u max_proc_us=%u slow_blocks=%u proc_ms=%u",s->bootMs.load(),s->cpuMs.load(),s->blocks.load(),s->underruns.load(),s->midiDrops.load(),s->warmupBlocks.load(),s->warmupPeak.load(),s->maxProcUs.load(),s->slowBlocks.load(),s->procMsTotal.load());
+    if(!strcmp(key,"diagnostics")) return snprintf(buffer,size,"boot_ms=%u cpu_ms=%u blocks=%u underruns=%u midi_drops=%u warmup_blocks=%u warmup_peak=%u max_proc_us=%u slow_blocks=%u proc_ms=%u rss_kb=%u",s->bootMs.load(),s->cpuMs.load(),s->blocks.load(),s->underruns.load(),s->midiDrops.load(),s->warmupBlocks.load(),s->warmupPeak.load(),s->maxProcUs.load(),s->slowBlocks.load(),s->procMsTotal.load(),s->rssKb.load());
     buffer[0]=0; return -1;
 }
 static void render(void* context,int16_t* out,int frames) {

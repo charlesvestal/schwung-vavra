@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 #include <thread>
 
@@ -61,6 +62,32 @@ int main() {
             assert(found && "every parameter must be reachable by binary search");
         }
         printf("PASS: %zu parameters sorted and reachable by binary search\n", count);
+    }
+    // State blob helpers: round trip, and every way a damaged blob must fail.
+    {
+        uint8_t bytes[383];
+        for (int i = 0; i < 383; ++i) bytes[i] = static_cast<uint8_t>(i % 128);
+        const std::string hex = vavra::toHex(bytes, sizeof(bytes));
+        assert(hex.size() == 766);
+        const std::string json = "{\"v\":1,\"preset\":42,\"mode\":2,\"gain\":150,\"single\":\"" + hex + "\",\"multi\":\"00\"}";
+        assert(vavra::jsonInt(json.c_str(), "v", 0) == 1);
+        assert(vavra::jsonInt(json.c_str(), "preset", -1) == 42);
+        assert(vavra::jsonInt(json.c_str(), "mode", -1) == 2);
+        assert(vavra::jsonInt(json.c_str(), "gain", -1) == 150);
+        assert(vavra::jsonInt(json.c_str(), "absent", -7) == -7);
+        // "preset" must not be satisfied by a longer key that starts with it.
+        assert(vavra::jsonInt("{\"preset_name\":5}", "preset", -1) == -1);
+        uint8_t back[383]{};
+        assert(vavra::jsonHex(json.c_str(), "single", back, 383));
+        assert(!memcmp(bytes, back, 383));
+        assert(!vavra::jsonHex(json.c_str(), "single", back, 382));     // wrong length
+        assert(!vavra::jsonHex(json.c_str(), "single", back, 384));     // wrong length
+        assert(!vavra::jsonHex(json.c_str(), "missing", back, 383));
+        assert(!vavra::jsonHex("{\"single\":\"zz\"}", "single", back, 1));   // not hex
+        assert(!vavra::jsonHex("{\"single\":\"80\"}", "single", back, 1));   // 8-bit sysex byte
+        assert(!vavra::jsonHex("{\"single\":\"7f", "single", back, 1));       // truncated
+        assert(vavra::jsonHex("{\"single\":\"7F\"}", "single", back, 1) && back[0] == 0x7f);
+        puts("PASS: state blob round trip and rejection of damaged blobs");
     }
     puts("PASS: ring wrap/full/empty, concurrent publication, and ROM normalization");
 }
