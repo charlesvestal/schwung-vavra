@@ -41,6 +41,9 @@ jobs:
           file dist/vavra/dsp.so | tee /dev/stderr | grep -q 'ARM aarch64'
           # A top-level vavra/ or the Module Store extracts into the wrong place.
           tar tzf dist/vavra-module.tar.gz | head -1 | grep -q '^vavra/'
+          # The licence travels with the GPL binary.
+          tar tzf dist/vavra-module.tar.gz | grep -q '^vavra/LICENSE$'
+          tar tzf dist/vavra-module.tar.gz | grep -q '^vavra/licenses/NOTICE.txt$'
           # The microQ ROM is the user's to supply and must never ship.
           ! tar tzf dist/vavra-module.tar.gz | grep -qE 'roms/.+\.(mid|bin|BIN)$'
 

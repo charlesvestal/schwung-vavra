@@ -64,12 +64,21 @@ cp src/module.json dist/vavra/module.json
 cp build/dsp.so dist/vavra/dsp.so
 chmod +x dist/vavra/dsp.so
 
+# Licence texts. dsp.so is a GPL-3.0 binary built on gearmulator, and it links
+# MIT/BSD/Zlib code whose terms require the notice to travel with the binary.
+# Deliberately unconditional: a missing file must fail the build, not ship a
+# tarball without its licence.
+rm -rf dist/vavra/licenses
+mkdir -p dist/vavra/licenses
+cp LICENSE dist/vavra/LICENSE
+cp licenses/*.txt dist/vavra/licenses/
+
 # Asset directory placeholders (ROMs required, extra banks optional)
 mkdir -p dist/vavra/roms dist/vavra/banks
 
 # Create tarball for release
 cd dist
-tar -czvf vavra-module.tar.gz vavra/module.json vavra/dsp.so
+tar -czvf vavra-module.tar.gz vavra/module.json vavra/dsp.so vavra/LICENSE vavra/licenses
 cd ..
 
 echo ""

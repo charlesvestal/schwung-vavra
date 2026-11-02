@@ -1,0 +1,29 @@
+Vavra for Schwung (module id: vavra)
+
+This module is distributed under the GNU General Public License, version 3
+only (GPL-3.0-only). The full text is in LICENSE.
+
+dsp.so statically links code from gearmulator (https://github.com/dsp56300/gearmulator,
+built from the fork at https://github.com/charlesvestal/gearmulator), which is
+licensed under GPL-3.0 with no "or any later version" grant. That makes the
+module as a whole GPL-3.0-only. Gearmulator libraries linked: dsp56300
+(DSP56300 emulator), baseLib, synthLib, hardwareLib, mc68k, waldi wLib and
+microq/mqLib.
+
+Corresponding source: this repository at the release tag, with its
+libs/gearmulator submodule (and that submodule's dsp56300, mc68k and asmjit
+submodules) at the commits the tag records.
+
+The following components inside dsp.so carry their own, GPL-compatible
+licences. Their notices are reproduced in this directory:
+
+  asmjit-Zlib.txt                 AsmJit (JIT assembler, via dsp56300) - Zlib
+  musashi-MIT.txt                 Musashi 68000 core (via mc68k) - MIT
+  libresample-BSD-2-Clause.txt    libresample (dual LGPL/BSD; used under BSD)
+  mame-resampler-BSD-3-Clause.txt synthLib/mameResamplers.cpp, from MAME - BSD-3-Clause
+  ittnotify-BSD-3-Clause.txt      Intel ITT/JIT profiling API (via dsp56300's
+                                  vtuneSdk; dual GPL-2.0-only OR BSD-3-Clause,
+                                  used under BSD-3-Clause)
+
+microQ is a trademark of Waldorf Music. No Waldorf firmware ships with this
+module; the OS image is supplied by the user.
